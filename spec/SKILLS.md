@@ -33,13 +33,14 @@ Interactive flow:
 3. Ask for slug (suggest from directory name)
 4. Add entry to `~/.claude/atlas/registry.yaml` (slug + path + repo)
 5. Check if `.claude/atlas.yaml` exists in the project:
-   - **Exists** → read it, cache it, show summary
+   - **Exists** → read it, validate `summary` field exists, cache it, show summary
    - **Missing** → offer to create one:
      - Auto-detect name from `package.json` / `Cargo.toml` / directory name
+     - Ask for summary (<100 chars, one-liner — suggest based on name + language)
      - Auto-detect tags from language/framework
      - Guess CI link from repo URL
      - Write `.claude/atlas.yaml` to the project repo
-6. Cache the project config
+6. Cache the project config (including summary for the project index)
 
 #### `show`
 
@@ -169,9 +170,9 @@ If Context7 MCP is not installed:
 
 ---
 
-## Hook: SessionStart — project-detect
+## Hook: SessionStart — project-detect + index
 
-**Purpose**: Auto-detect current project, refresh cache, inject context.
+**Purpose**: Auto-detect current project and output the project index for cross-project awareness.
 
 ### Behavior
 
@@ -179,22 +180,43 @@ If Context7 MCP is not installed:
 2. Match `$PWD` against all project paths (exact, child, additional_paths)
 3. If match found:
    a. Read project's `.claude/atlas.yaml` from disk (fresh read, updates cache)
-   b. Output compact project summary
-4. If no match: silent (no output, no error)
+   b. Mark as current project
+4. **Output project index** — one line per registered project (slug + summary from cache)
+5. Highlight current project in the index
+
+### Output: Two-Tier Discovery
+
+The hook outputs the **project index** — a compact list of all registered projects. This gives Claude cross-project awareness without loading full details.
+
+```
+[atlas] Current: digital-web-sdk — Browser JS SDK for content personalization
+[atlas] Projects:
+  digital-web-sdk *  Browser JS SDK for content personalization — TypeScript, Vite
+  digital-collector  Snowplow event collector service — Scala, Kafka
+  digital-enrich     Event enrichment pipeline — Scala, Kafka
+  clawrig            AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas      Project registry for Claude sessions — Claude plugin
+```
+
+`*` marks the current project. Claude sees this on every session start and can:
+- Recognize when a task involves another project
+- Call `/atlas:context --project <slug>` to load full details on demand
+- Use `/relay:issue --project <slug>` to create issues in another project
+
+### Scaling
+
+- **< 30 projects**: Full index output (one line per project)
+- **30+ projects**: Output 30 most recently accessed, append `... and N more`
+- If no match for cwd: still output the index (no "Current" line)
+- If no projects registered: `[atlas] No projects registered. Use /atlas:projects add`
 
 ### Performance
 
-- Pure bash: read YAML, pattern match, read project config, print
-- No network calls
+- Pure bash: read registry YAML, read cached summaries, pattern match cwd, print
+- No network calls, no disk reads beyond cache
 - Target: < 500ms execution
-- Skip if `registry.yaml` doesn't exist (atlas not initialized)
+- Skip entirely if `registry.yaml` doesn't exist (atlas not initialized)
 
-### Output
+### Context Cost
 
-Compact one-liner printed to stdout:
-
-```
-[atlas] digital-web-sdk | gitlab | tags: sdk, typescript | 3 links
-```
-
-Full details available via `/atlas:context`.
+~50 tokens per project. For a typical working set of 5-20 projects: 250-1000 tokens. Negligible compared to a typical session context.

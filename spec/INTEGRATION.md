@@ -91,25 +91,44 @@ Atlas should be added to the toolkit's tool registry (`setup.mjs`):
 }
 ```
 
-## Session Context Injection
+## Session Context Injection (Two-Tier Discovery)
 
-### What Gets Injected
+Atlas uses the same pattern as MCP tools and skills: **always-loaded index + on-demand details**.
 
-On SessionStart, if cwd matches a registered project, atlas outputs:
+### Tier 1: Project Index (Always Injected)
+
+On every SessionStart, atlas outputs a compact index of ALL registered projects:
 
 ```
-[atlas] digital-web-sdk | gitlab — https://git.angara.cloud/digital/web-sdk
-  Links: docs, ci, staging | Tags: sdk, typescript, frontend
-  Notes: Core JS SDK. Test: npm run test. Build: npm run build.
+[atlas] Current: digital-web-sdk — Browser JS SDK for content personalization
+[atlas] Projects:
+  digital-web-sdk *  Browser JS SDK for content personalization — TypeScript, Vite
+  digital-collector  Snowplow event collector service — Scala, Kafka
+  digital-enrich     Event enrichment pipeline — Scala, Kafka
+  clawrig            AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas      Project registry for Claude sessions — Claude plugin
 ```
 
-Context comes from cached `.claude/atlas.yaml`. If cache is stale or missing, atlas reads from the project's actual config file and refreshes cache.
+Each line is a slug + the `summary` field from the project's `.claude/atlas.yaml`. This costs ~50 tokens per project — negligible for typical registries (5-30 projects).
 
-### What Doesn't Get Injected
+This gives Claude enough cross-project awareness to:
+- Know what other projects exist and what they do
+- Recognize when a conversation touches another project
+- Decide when to load full details via `/atlas:context --project <slug>`
 
-- Full project registry (only current project)
-- Other projects' details (available via `/atlas:projects` but not auto-injected)
-- Issue tracker info (relay's responsibility)
+### Tier 2: Full Details (On Demand)
+
+When Claude needs more about a specific project, it calls:
+```
+/atlas:context --project digital-collector
+```
+This loads the full cached config: links, docs, tags, notes, metadata.
+
+### What Doesn't Get Auto-Injected
+
+- Full project configs (links, tags, docs, notes) — only loaded on demand
+- Issue tracker info — relay's responsibility, loaded when `/relay:issue` is called
+- Documentation content — loaded via `/atlas:docs` when needed
 
 ## Per-Project Config File (`.claude/atlas.yaml`)
 
@@ -118,6 +137,7 @@ Atlas defines the schema, projects provide the data:
 ```yaml
 # <project-root>/.claude/atlas.yaml
 name: "Digital Personalization Web SDK"
+summary: "Browser JS SDK for content personalization — TypeScript, Vite"  # REQUIRED, <100 chars
 tags: [sdk, typescript, frontend]
 group: digital-platform
 links:
@@ -133,5 +153,7 @@ notes: |
 This file is:
 - **Version-controlled** — travels with the repo
 - **Team-shared** — everyone gets the same project metadata
-- **Optional** — atlas works without it (just less context)
+- **Optional** — atlas works without it (just less context, no summary in index)
 - **Managed by atlas** — `/atlas:projects edit` modifies this file in the repo
+
+The `summary` field is the most important — it's what appears in the project index on every session start across all projects.

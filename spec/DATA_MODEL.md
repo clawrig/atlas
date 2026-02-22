@@ -55,6 +55,12 @@ Each project repo contains a `.claude/atlas.yaml` describing itself:
 
 name: "Digital Personalization Web SDK"
 
+# REQUIRED — one-liner (<100 chars) used in the project index.
+# This is what every Claude session sees for this project.
+# Think of it like an MCP tool description — enough to know
+# when the project is relevant, without loading full details.
+summary: "Browser JS SDK for content personalization — TypeScript, Vite"
+
 tags:
   - sdk
   - typescript
@@ -142,6 +148,7 @@ When registering a new project, atlas auto-detects:
 3. **Existing `.claude/atlas.yaml`** — reads it immediately if present
 4. **Missing `.claude/atlas.yaml`** — offers to create one with auto-detected values:
    - `name` from `package.json`, `Cargo.toml`, `build.gradle`, or directory name
+   - `summary` auto-generated from name + detected language/framework (<100 chars)
    - `tags` from detected language/framework
    - `links.ci` guessed from repo URL (GitLab CI, GitHub Actions)
 
@@ -154,6 +161,50 @@ For SessionStart project detection:
 3. Additional paths: `cwd` matches any `additional_paths` entry
 4. Deepest match wins (most specific project)
 5. If no match: session runs without project context (atlas still available)
+
+## Project Discovery (Two-Tier Index)
+
+Atlas uses a **two-tier discovery model** — the same pattern as MCP tools, skills, and Context7:
+
+| Tier | What | When Loaded | Context Cost |
+|---|---|---|---|
+| **Index** | Slug + summary (one-liner per project) | Always (SessionStart) | ~50 tokens/project |
+| **Details** | Full config (links, docs, tags, notes) | On demand (`/atlas:context`) | ~200-500 tokens/project |
+
+### Tier 1: Project Index (Always Loaded)
+
+On every SessionStart, atlas outputs the full project index — one line per registered project:
+
+```
+[atlas] Current: digital-web-sdk
+[atlas] Projects:
+  digital-web-sdk    Browser JS SDK for content personalization — TypeScript, Vite
+  digital-collector  Snowplow event collector service — Scala, Kafka
+  digital-enrich     Event enrichment pipeline — Scala, Kafka
+  clawrig            AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas      Project registry for Claude sessions — Claude plugin
+```
+
+This gives Claude enough awareness to:
+- Know what projects exist
+- Recognize when a conversation touches another project
+- Decide when to load full details
+
+**Scaling**: At ~50 tokens per project, 20 projects = ~1000 tokens (negligible). For registries with 50+ projects, the hook caps output to the 30 most recently accessed and appends `... and N more (use /atlas:projects list for full list)`.
+
+### Tier 2: Full Details (On Demand)
+
+When Claude needs more about a project, it calls `/atlas:context --project <slug>`. This loads the full cached config: links, docs, tags, notes, metadata.
+
+### Where Summaries Come From
+
+The `summary` field in `.claude/atlas.yaml` is the source of truth. It's:
+- **Required** — atlas warns if missing during `add` or `refresh`
+- **Short** — must be <100 characters
+- **Descriptive** — what the project IS, not what it does in detail
+- **Cached** — stored in `~/.claude/atlas/cache/projects/<slug>.yaml` alongside full config
+
+If a project has no `.claude/atlas.yaml` or no `summary` field, atlas falls back to: `<slug> (no summary — run /atlas:projects edit <slug>)`
 
 ## Data Integrity
 
