@@ -1,6 +1,6 @@
 {
   "name": "atlas",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Project registry and cross-project awareness for Claude Code sessions",
   "author": {
     "name": "ClawRig"
