@@ -1,0 +1,13 @@
+[project]
+name = "atlas-mcp"
+version = "0.1.0"
+description = "Atlas project registry MCP server"
+requires-python = ">=3.10"
+dependencies = ["mcp[cli]>=1.0.0"]
+
+[project.scripts]
+atlas-mcp = "atlas_mcp.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

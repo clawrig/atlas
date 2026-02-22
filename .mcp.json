@@ -1,0 +1,6 @@
+{
+  "atlas": {
+    "command": "uv",
+    "args": ["--directory", "${CLAUDE_PLUGIN_ROOT}/mcp-server", "run", "atlas-mcp"]
+  }
+}
