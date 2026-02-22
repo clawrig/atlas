@@ -155,38 +155,45 @@ If Context7 MCP is not installed:
 
 ## Skill: /atlas:init
 
-**Purpose**: Initialize atlas for first-time use.
+**Purpose**: Initialize atlas for first-time use. Discovers and registers projects in the current directory.
 
 ```
 /atlas:init
+/atlas:init --scan ~/dev          # Scan a specific directory for projects
 ```
 
 ### Flow
 
 1. Create `~/.claude/atlas/` directory structure
 2. Create empty `registry.yaml`
-3. Offer to register current directory as a project (runs `add` flow)
-4. Print quick-start guide
+3. **Scan cwd (or `--scan` path) for projects**:
+   - Find all `.git/` directories up to 3 levels deep
+   - For each: check if `.claude/atlas.yaml` exists
+   - Present discovered projects as a list
+   - Ask which ones to register (default: all)
+4. For each selected project, run the `add` flow (auto-detect slug, repo, create config if missing)
+5. Print summary + quick-start guide
 
 ---
 
-## Hook: SessionStart — project-detect + index
+## Hook: SessionStart — project-detect + discover + index
 
-**Purpose**: Auto-detect current project and output the project index for cross-project awareness.
+**Purpose**: Auto-detect current project, discover projects inside cwd, and output the project index.
 
 ### Behavior
 
 1. Read `~/.claude/atlas/registry.yaml`
-2. Match `$PWD` against all project paths (exact, child, additional_paths)
+2. **Registry match**: Match `$PWD` against all project paths (exact, child, additional_paths)
 3. If match found:
    a. Read project's `.claude/atlas.yaml` from disk (fresh read, updates cache)
    b. Mark as current project
-4. **Output project index** — one line per registered project (slug + summary from cache)
-5. Highlight current project in the index
+4. **Child discovery**: If cwd is NOT an exact project match, scan for projects inside cwd:
+   a. Find `.claude/atlas.yaml` files up to 3 levels deep
+   b. Find `.git/` directories up to 2 levels deep (unregistered repos)
+   c. Cross-reference with registry: mark as registered or discovered
+5. **Output project index** — registered projects with summaries, discovered projects with registration prompt
 
-### Output: Two-Tier Discovery
-
-The hook outputs the **project index** — a compact list of all registered projects. This gives Claude cross-project awareness without loading full details.
+### Output: Case 1 — Inside a registered project
 
 ```
 [atlas] Current: digital-web-sdk — Browser JS SDK for content personalization
@@ -195,28 +202,59 @@ The hook outputs the **project index** — a compact list of all registered proj
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
   clawrig            AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas      Project registry for Claude sessions — Claude plugin
 ```
 
-`*` marks the current project. Claude sees this on every session start and can:
-- Recognize when a task involves another project
-- Call `/atlas:context --project <slug>` to load full details on demand
-- Use `/relay:issue --project <slug>` to create issues in another project
+No child discovery needed — we're in a specific project.
+
+### Output: Case 2 — In a workspace root (e.g., `~/dev/digital/`)
+
+```
+[atlas] Workspace: ~/dev/digital/
+[atlas] Local projects:
+  digital-web-sdk      Browser JS SDK for content personalization — TypeScript, Vite
+  digital-collector    Snowplow event collector service — Scala, Kafka
+  digital-enrich       Event enrichment pipeline — Scala, Kafka
+  digital-router       (not registered — /atlas:projects add)
+  digital-s3-loader    (not registered — /atlas:projects add)
+[atlas] Other projects:
+  clawrig              AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas        Project registry for Claude sessions — Claude plugin
+```
+
+"Local projects" = found inside cwd (registered + discovered). "Other projects" = registered but elsewhere.
+
+### Output: Case 3 — No match, no children
+
+```
+[atlas] Projects:
+  digital-web-sdk    Browser JS SDK for content personalization — TypeScript, Vite
+  clawrig            AI dev workflow orchestration — TypeScript, Node
+  ...
+```
+
+Just the global index. No current project, no local discoveries.
+
+### `*` marks and labels
+
+- Registered projects with `.claude/atlas.yaml` → slug + summary
+- Discovered but unregistered → slug + `(not registered — /atlas:projects add)`
+- Discovered git repos without atlas config → dirname + `(git repo, not registered)`
 
 ### Scaling
 
 - **< 30 projects**: Full index output (one line per project)
 - **30+ projects**: Output 30 most recently accessed, append `... and N more`
-- If no match for cwd: still output the index (no "Current" line)
-- If no projects registered: `[atlas] No projects registered. Use /atlas:projects add`
+- If no projects registered and none discovered: `[atlas] No projects found. Use /atlas:projects add`
 
 ### Performance
 
-- Pure bash: read registry YAML, read cached summaries, pattern match cwd, print
-- No network calls, no disk reads beyond cache
-- Target: < 500ms execution
+- Registry match: read YAML, string compare — fast
+- Child discovery: `find` with `maxdepth 3-4`, bounded — target < 500ms
+- Skip child discovery if cwd IS a registered project (already specific enough)
+- Cache discovery results per directory to avoid redundant scans
+- No network calls
 - Skip entirely if `registry.yaml` doesn't exist (atlas not initialized)
 
 ### Context Cost
 
-~50 tokens per project. For a typical working set of 5-20 projects: 250-1000 tokens. Negligible compared to a typical session context.
+~50 tokens per project. For a typical working set of 5-20 projects: 250-1000 tokens. Discovered-but-unregistered projects add ~30 tokens each.

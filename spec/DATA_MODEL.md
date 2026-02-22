@@ -152,15 +152,57 @@ When registering a new project, atlas auto-detects:
    - `tags` from detected language/framework
    - `links.ci` guessed from repo URL (GitLab CI, GitHub Actions)
 
-## Path Matching Rules
+## Path Matching & Auto-Discovery
 
-For SessionStart project detection:
+SessionStart does two things: **match cwd** against the registry AND **discover projects** inside cwd.
+
+### Step 1: Registry Match (Is cwd a known project?)
 
 1. Exact match: `cwd == project.path`
 2. Child match: `cwd` is inside `project.path`
 3. Additional paths: `cwd` matches any `additional_paths` entry
 4. Deepest match wins (most specific project)
-5. If no match: session runs without project context (atlas still available)
+
+### Step 2: Child Discovery (Are there projects inside cwd?)
+
+If cwd is a workspace root (e.g., `~/dev/digital/`), atlas scans for projects inside it:
+
+1. Find all `.claude/atlas.yaml` files up to 3 levels deep:
+   ```
+   find $PWD -maxdepth 4 -path "*/.claude/atlas.yaml" -type f
+   ```
+2. For each found config:
+   - Already registered? → mark as "local" in the index
+   - Not registered? → mark as "discovered" and suggest registration
+3. Also find git repos without atlas config (`.git/` dirs up to 2 levels deep):
+   ```
+   find $PWD -maxdepth 2 -name ".git" -type d
+   ```
+   These appear as "unregistered" in the index
+
+### Output Example (workspace root)
+
+```
+[atlas] Workspace: ~/dev/digital/ (not a registered project)
+[atlas] Projects in this directory:
+  digital-web-sdk *    Browser JS SDK for content personalization — TypeScript, Vite
+  digital-collector *  Snowplow event collector service — Scala, Kafka
+  digital-enrich *     Event enrichment pipeline — Scala, Kafka
+  digital-router       (discovered, not registered — use /atlas:projects add)
+  digital-s3-loader    (discovered, not registered — use /atlas:projects add)
+[atlas] All projects:
+  clawrig              AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas        Project registry for Claude sessions — Claude plugin
+```
+
+`*` = registered and has `.claude/atlas.yaml`. Discovered projects get auto-registered if the user confirms.
+
+### Performance Budget
+
+- Registry match: fast (YAML parse + string compare)
+- Child discovery: `find` with `maxdepth 3-4`, bounded to ~500ms
+- Skip child discovery if cwd IS a registered project (no need to scan children)
+- Cache discovery results to avoid re-scanning on every session
 
 ## Project Discovery (Two-Tier Index)
 
