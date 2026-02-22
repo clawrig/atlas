@@ -2,7 +2,7 @@
 
 ## Skill: /atlas:projects
 
-**Purpose**: Manage the global project registry.
+**Purpose**: Manage the project registry and per-project configs.
 
 ### Subcommands
 
@@ -15,7 +15,9 @@
 /atlas:projects list --tag typescript
 ```
 
-Output: table of registered projects with slug, name, path, repo type, tags.
+Output: table of registered projects with slug, path, repo, tags (from cache).
+
+For `--group` and `--tag` filtering, atlas reads cached configs. If cache is empty, suggests running `refresh` first.
 
 #### `add`
 
@@ -27,13 +29,17 @@ Output: table of registered projects with slug, name, path, repo type, tags.
 
 Interactive flow:
 1. If no `--path`, use cwd
-2. Auto-detect repo info from `.git/config`
-3. Auto-detect language/framework from project files
-4. Check for `.beads/` → auto-add beads tracker
-5. Ask for slug (suggest from directory name)
-6. Ask for tags, group, notes
-7. Ask about issue trackers (which external trackers to configure)
-8. Write to `~/.claude/atlas/projects.yaml`
+2. Auto-detect repo URL from `.git/config`
+3. Ask for slug (suggest from directory name)
+4. Add entry to `~/.claude/atlas/registry.yaml` (slug + path + repo)
+5. Check if `.claude/atlas.yaml` exists in the project:
+   - **Exists** → read it, cache it, show summary
+   - **Missing** → offer to create one:
+     - Auto-detect name from `package.json` / `Cargo.toml` / directory name
+     - Auto-detect tags from language/framework
+     - Guess CI link from repo URL
+     - Write `.claude/atlas.yaml` to the project repo
+6. Cache the project config
 
 #### `show`
 
@@ -42,15 +48,16 @@ Interactive flow:
 /atlas:projects show                       # Show current project (from cwd)
 ```
 
-Output: full project details including all links, trackers, notes.
+Output: full project details — registry info + config from cache.
 
 #### `edit`
 
 ```
 /atlas:projects edit digital-web-sdk
+/atlas:projects edit                       # Edit current project
 ```
 
-Interactive: show current values, allow editing any field.
+Interactive: opens the project's `.claude/atlas.yaml` for editing. Changes are made in the project repo (version-controlled). Cache is refreshed after edit.
 
 #### `remove`
 
@@ -58,7 +65,7 @@ Interactive: show current values, allow editing any field.
 /atlas:projects remove digital-web-sdk
 ```
 
-Confirmation required. Removes from registry only (doesn't touch project files).
+Confirmation required. Removes from `registry.yaml` and cache. Does NOT delete `.claude/atlas.yaml` from the project repo.
 
 #### `link`
 
@@ -68,7 +75,19 @@ Confirmation required. Removes from registry only (doesn't touch project files).
 /atlas:projects link --project digital-web-sdk figma https://figma.com/...
 ```
 
-Quick way to add/update links without full edit flow.
+Quick way to add/update links in the project's `.claude/atlas.yaml`. Refreshes cache after.
+
+#### `refresh`
+
+```
+/atlas:projects refresh                    # Refresh all project caches
+/atlas:projects refresh digital-web-sdk    # Refresh specific project
+```
+
+Walks registry, reads each project's `.claude/atlas.yaml`, updates cache. Reports:
+- Projects with missing paths (clone gone?)
+- Projects without `.claude/atlas.yaml` (suggest creating)
+- Projects with updated configs (diff since last cache)
 
 ---
 
@@ -85,8 +104,7 @@ Quick way to add/update links without full edit flow.
 ### Output Format (Human)
 
 ```
-Project: Digital Personalization Web SDK
-Slug: digital-web-sdk
+Project: Digital Personalization Web SDK (digital-web-sdk)
 Path: ~/dev/digital/clients/digital-personalization-web-sdk
 Repo: gitlab — https://git.angara.cloud/digital/web-sdk
 Group: digital-platform
@@ -97,10 +115,6 @@ Links:
   ci      → https://git.angara.cloud/.../pipelines
   staging → https://staging.example.com
 
-Issue Trackers:
-  gitlab (default) — project: digital/web-sdk
-  beads (local)
-
 Notes:
   Core JS SDK for the Digital Personalization Platform.
   Test: npm run test | Build: npm run build
@@ -108,7 +122,7 @@ Notes:
 
 ### Output Format (JSON)
 
-Full project definition as JSON — used by relay and other tools programmatically.
+Merged view: registry entry + cached project config. Used by relay and other tools programmatically.
 
 ---
 
@@ -124,7 +138,7 @@ Full project definition as JSON — used by relay and other tools programmatical
 ### Flow
 
 1. Resolve project (cwd or `--project`)
-2. Load context7 config from project definition
+2. Load docs config from cached project config
 3. If `context7_id` not set/cached → resolve via `mcp__context7__resolve-library-id`
 4. Query docs via `mcp__context7__query-docs`
 5. Return results
@@ -140,7 +154,7 @@ If Context7 MCP is not installed:
 
 ## Skill: /atlas:init
 
-**Purpose**: Initialize atlas for first-time use and register the current project.
+**Purpose**: Initialize atlas for first-time use.
 
 ```
 /atlas:init
@@ -148,8 +162,8 @@ If Context7 MCP is not installed:
 
 ### Flow
 
-1. Create `~/.claude/atlas/` directory if not exists
-2. Create `projects.yaml` with empty projects map
+1. Create `~/.claude/atlas/` directory structure
+2. Create empty `registry.yaml`
 3. Offer to register current directory as a project (runs `add` flow)
 4. Print quick-start guide
 
@@ -157,28 +171,30 @@ If Context7 MCP is not installed:
 
 ## Hook: SessionStart — project-detect
 
-**Purpose**: Auto-detect current project and inject context.
+**Purpose**: Auto-detect current project, refresh cache, inject context.
 
 ### Behavior
 
-1. Read `~/.claude/atlas/projects.yaml`
+1. Read `~/.claude/atlas/registry.yaml`
 2. Match `$PWD` against all project paths (exact, child, additional_paths)
-3. If match found: output project summary (name, repo, links, notes)
+3. If match found:
+   a. Read project's `.claude/atlas.yaml` from disk (fresh read, updates cache)
+   b. Output compact project summary
 4. If no match: silent (no output, no error)
 
 ### Performance
 
-- Pure bash: read YAML, pattern match, print
+- Pure bash: read YAML, pattern match, read project config, print
 - No network calls
 - Target: < 500ms execution
-- Skip if `projects.yaml` doesn't exist (atlas not initialized)
+- Skip if `registry.yaml` doesn't exist (atlas not initialized)
 
 ### Output
 
-Printed to stdout during session startup. Claude sees this as session context.
+Compact one-liner printed to stdout:
 
 ```
-[atlas] digital-web-sdk — gitlab — 2 trackers — 3 links
+[atlas] digital-web-sdk | gitlab | tags: sdk, typescript | 3 links
 ```
 
-Compact one-liner. Full details available via `/atlas:context`.
+Full details available via `/atlas:context`.

@@ -10,7 +10,7 @@ Atlas bridges projects to their documentation via Context7 MCP server.
 User: /atlas:docs "how does token refresh work"
   │
   ├─ 1. Atlas resolves current project (from cwd or --project flag)
-  ├─ 2. Reads project's docs.context7_id or docs.context7_query
+  ├─ 2. Reads project's docs.context7_id or docs.context7_query (from cached config)
   ├─ 3. If context7_id not cached:
   │     └─ Calls mcp__context7__resolve-library-id with query
   │        Caches result in ~/.claude/atlas/cache/context7-ids.yaml
@@ -18,53 +18,45 @@ User: /atlas:docs "how does token refresh work"
   └─ 5. Returns documentation results in session context
 ```
 
-### Configuration
+### Configuration (in project's `.claude/atlas.yaml`)
 
 ```yaml
-# In project definition:
 docs:
-  context7_id: "/npm/digital-web-sdk"    # Known ID — skip resolution
-  context7_query: "digital personalization"  # Fallback for resolution
-```
-
-### Cache
-
-```yaml
-# ~/.claude/atlas/cache/context7-ids.yaml
-resolved:
-  digital-web-sdk:
-    context7_id: "/npm/digital-web-sdk"
-    resolved_at: "2026-02-22T10:00:00Z"
-    query_used: "digital personalization sdk"
+  context7_id: "/npm/digital-web-sdk"        # Known ID — skip resolution
+  context7_query: "digital personalization"   # Fallback for resolution
+  local: ./docs/                              # Local docs path
 ```
 
 ## Relay Plugin Integration
 
-Atlas provides the **project metadata** that relay consumes:
+Atlas provides **project identity and metadata**. Relay provides **issue routing and handoff**.
 
 | Atlas Provides | Relay Uses For |
 |---|---|
-| `issue_trackers[]` | Routing issues to correct tracker |
-| `repo.type`, `repo.url` | Handoff envelope project section |
-| `path` | Detecting which project a handoff targets |
-| `links` | Including relevant links in handoff context |
-| `notes` | Injecting project notes into handoff summary |
+| Project slug, path | Resolving which project the user is in |
+| `repo.url`, repo type | Handoff envelope, cross-project references |
+| Cached project config (links, notes) | Including in handoff context |
+
+### Boundary
+
+- Atlas does NOT know about issue trackers — that's relay's domain
+- Relay reads atlas registry to resolve project, then reads its own `.claude/relay.yaml` from the project repo for tracker config
+- Atlas does NOT depend on relay. Relay depends on atlas (for project resolution).
 
 ### API Contract
 
-Relay reads atlas data by:
-1. Parsing `~/.claude/atlas/projects.yaml` directly (YAML file)
-2. Or invoking `/atlas:context --json` for current project info
-
-Atlas does NOT depend on relay. Relay depends on atlas.
+Relay resolves projects by:
+1. Reading `~/.claude/atlas/registry.yaml` to find project path
+2. Reading cached config from `~/.claude/atlas/cache/projects/<slug>.yaml`
+3. Or invoking `/atlas:context --json` for current project info
 
 ## Beads Integration
 
 Atlas is aware of beads but does not depend on it:
 
-- During `projects add`, atlas checks for `.beads/` and auto-configures a beads tracker entry
+- During `projects add`, if `.beads/` exists, atlas notes it in session context
 - Atlas project detection runs BEFORE beads' `bd prime` (hook ordering)
-- Atlas injects project context that beads' task-agent can use
+- Atlas injects project context that beads' task-agent can use for orientation
 
 ## ClawRig / OpenClaw Integration
 
@@ -74,7 +66,7 @@ Atlas complements clawrig's project-ref MCP server:
 - **project-ref** provides cross-project file read access to Claude Code
 - **atlas** provides project metadata and discovery
 
-Future: atlas could feed project-ref its project list, so project-ref doesn't need separate configuration.
+Future: atlas registry could feed project-ref its project list, eliminating duplicate configuration.
 
 ### OpenClaw Skills
 
@@ -92,10 +84,8 @@ Atlas should be added to the toolkit's tool registry (`setup.mjs`):
   deps: [],
   check: () => execSync('claude plugin list').toString().includes('atlas'),
   install: async () => {
-    // Install from marketplace
     execSync('claude plugin install atlas --marketplace ivintik');
-    // Initialize data directory
-    execSync('mkdir -p ~/.claude/atlas');
+    execSync('mkdir -p ~/.claude/atlas/cache/projects');
   },
   recommended: true,
 }
@@ -105,20 +95,43 @@ Atlas should be added to the toolkit's tool registry (`setup.mjs`):
 
 ### What Gets Injected
 
-On SessionStart, if cwd matches a project, atlas outputs:
+On SessionStart, if cwd matches a registered project, atlas outputs:
 
 ```
-[Atlas] Project: Digital Personalization Web SDK (digital-web-sdk)
-Repo: https://git.angara.cloud/digital/web-sdk (gitlab)
-Links: docs=https://docs.example.com/web-sdk ci=https://git.angara.cloud/.../pipelines
-Issue trackers: gitlab (default), beads (local)
-Notes: Core JS SDK. Test: npm run test. Build: npm run build.
+[atlas] digital-web-sdk | gitlab — https://git.angara.cloud/digital/web-sdk
+  Links: docs, ci, staging | Tags: sdk, typescript, frontend
+  Notes: Core JS SDK. Test: npm run test. Build: npm run build.
 ```
 
-This appears in the session startup output, giving Claude immediate project awareness.
+Context comes from cached `.claude/atlas.yaml`. If cache is stale or missing, atlas reads from the project's actual config file and refreshes cache.
 
 ### What Doesn't Get Injected
 
 - Full project registry (only current project)
-- Issue tracker credentials (those live in MCP server configs)
-- Other projects' details (available via /atlas:projects but not auto-injected)
+- Other projects' details (available via `/atlas:projects` but not auto-injected)
+- Issue tracker info (relay's responsibility)
+
+## Per-Project Config File (`.claude/atlas.yaml`)
+
+Atlas defines the schema, projects provide the data:
+
+```yaml
+# <project-root>/.claude/atlas.yaml
+name: "Digital Personalization Web SDK"
+tags: [sdk, typescript, frontend]
+group: digital-platform
+links:
+  docs: https://docs.example.com/web-sdk
+  ci: https://git.angara.cloud/digital/web-sdk/-/pipelines
+docs:
+  context7_id: "/npm/digital-web-sdk"
+  local: ./docs/
+notes: |
+  Core JS SDK. Test: npm run test. Build: npm run build.
+```
+
+This file is:
+- **Version-controlled** — travels with the repo
+- **Team-shared** — everyone gets the same project metadata
+- **Optional** — atlas works without it (just less context)
+- **Managed by atlas** — `/atlas:projects edit` modifies this file in the repo

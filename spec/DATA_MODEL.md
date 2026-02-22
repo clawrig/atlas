@@ -1,128 +1,149 @@
 # Atlas — Data Model
 
-## Storage Location
+## Two-Layer Storage
+
+Atlas uses a **split model**: minimal central registry + rich per-project configs that live in each project's repo.
+
+### Layer 1: Central Registry (Atlas owns)
 
 ```
 ~/.claude/atlas/
-├── projects.yaml              # Project registry (source of truth)
+├── registry.yaml              # Minimal: slug → path + repo
 └── cache/
-    └── context7-ids.yaml      # Cached context7 library ID resolutions
+    ├── projects/
+    │   └── digital-web-sdk.yaml   # Cached project config (from repo)
+    └── context7-ids.yaml          # Cached context7 library ID resolutions
 ```
 
-## Project Definition Schema
+**`registry.yaml`** — The only thing atlas manages centrally:
 
 ```yaml
-# ~/.claude/atlas/projects.yaml
+# ~/.claude/atlas/registry.yaml
+# This file answers ONE question: "What projects am I working on and where are they?"
+
 projects:
-
-  # Key: project slug (short, unique identifier)
   digital-web-sdk:
-
-    # Display name (optional, defaults to slug)
-    name: "Digital Personalization Web SDK"
-
-    # Local filesystem path (required)
-    # Supports ~ expansion and environment variables
     path: ~/dev/digital/clients/digital-personalization-web-sdk
+    repo: https://git.angara.cloud/digital/web-sdk
 
-    # Additional paths (e.g., monorepo packages, related dirs)
-    # Used for cwd matching — any of these paths trigger project detection
+  clawrig:
+    path: ~/dev/personal/clawrig
+    repo: https://github.com/iVintik/clawrig
+
+  digital-collector:
+    path: ~/dev/digital/digital-collector
+    repo: https://git.angara.cloud/digital/digital-collector
+
+  # Additional paths for cwd matching (e.g., monorepo child dirs)
+  # If cwd is inside any of these, atlas resolves to this project
+  digital-web-sdk:
+    path: ~/dev/digital/clients/digital-personalization-web-sdk
+    repo: https://git.angara.cloud/digital/web-sdk
     additional_paths:
       - ~/dev/digital/clients/digital-personalization-tags
-
-    # Repository information (auto-detected from .git if omitted)
-    repo:
-      type: github | gitlab | bitbucket | other
-      url: https://git.angara.cloud/digital/web-sdk
-      default_branch: main                    # Optional, default: main
-
-    # Important links (freeform key-value)
-    links:
-      docs: https://docs.example.com/web-sdk
-      ci: https://git.angara.cloud/digital/web-sdk/-/pipelines
-      staging: https://staging.example.com
-      figma: https://figma.com/file/abc123
-      confluence: https://confluence.example.com/display/SDK
-
-    # Documentation configuration
-    docs:
-      context7_id: "digital-web-sdk"          # Context7 library identifier
-      context7_query: "digital personalization sdk"  # Fallback search query
-      local: ./docs/                           # Local docs path (relative to project path)
-      readme: ./README.md                      # Custom readme location
-
-    # Tags for filtering and grouping
-    tags:
-      - sdk
-      - typescript
-      - frontend
-      - digital-platform
-
-    # Project group (optional, for organizing related projects)
-    group: digital-platform
-
-    # Issue tracker configuration
-    # Used by relay plugin for issue routing
-    # Order matters: first matching tracker is default
-    issue_trackers:
-
-      - name: gitlab                          # Tracker identifier (unique within project)
-        type: gitlab                          # gitlab | github | jira | beads
-        project_id: "digital/web-sdk"         # Tracker-specific project reference
-        default: true                         # Primary tracker for this project
-        labels:                               # Default labels applied to new issues
-          - sdk
-          - web
-        routing_rules:                        # Optional: fine-grained routing
-          - match:
-              type: bug                       # Issue type
-              priority: [critical, high]      # Priority levels
-            action:
-              labels: [urgent]                # Additional labels
-              assignee: "@team-lead"          # Auto-assign
-
-      - name: beads
-        type: beads
-        scope: local                          # local = project's own .beads/
-        routing_rules:
-          - match:
-              type: task                      # Agent tasks stay in beads
-              source: agent
-            action:
-              default: true                   # Override default for agent-created tasks
-
-    # Free-form notes (injected into session context)
-    notes: |
-      Core JS SDK for the Digital Personalization Platform.
-      Uses TypeScript, builds with Vite.
-      Test with: npm run test
-      Build with: npm run build
-
-    # Custom metadata (freeform, for extensions)
-    metadata:
-      team: platform
-      language: typescript
-      framework: vanilla
 ```
 
-## Project Groups
+That's it. No links, no tags, no notes, no issue trackers. Those live in the project repo.
 
-Projects can be organized into groups for batch operations:
+### Layer 2: Per-Project Config (Lives in the repo)
+
+Each project repo contains a `.claude/atlas.yaml` describing itself:
 
 ```yaml
-# Implicit grouping via 'group' field
-# Query: /atlas:projects --group digital-platform
-# Returns: all projects with group: digital-platform
+# <project-root>/.claude/atlas.yaml
+# This file travels with the repo. Team members share it.
+
+name: "Digital Personalization Web SDK"
+
+tags:
+  - sdk
+  - typescript
+  - frontend
+
+group: digital-platform
+
+links:
+  docs: https://docs.example.com/web-sdk
+  ci: https://git.angara.cloud/digital/web-sdk/-/pipelines
+  staging: https://staging.example.com
+  figma: https://figma.com/file/abc123
+  confluence: https://confluence.example.com/display/SDK
+
+docs:
+  context7_id: "/npm/digital-web-sdk"
+  context7_query: "digital personalization sdk"
+  local: ./docs/
+  readme: ./README.md
+
+notes: |
+  Core JS SDK for the Digital Personalization Platform.
+  Uses TypeScript, builds with Vite.
+  Test: npm run test
+  Build: npm run build
+
+metadata:
+  team: platform
+  language: typescript
+  framework: vanilla
 ```
 
-## Auto-Detection
+### Why This Split
 
-When a project is registered with only `path`, atlas auto-detects:
+| Concern | Where | Why |
+|---|---|---|
+| "Where is this project?" | `registry.yaml` (central) | Machine-specific (paths differ per machine) |
+| "What is this project?" | `.claude/atlas.yaml` (in repo) | Portable, team-shared, version-controlled |
+| Issue tracker config | `.claude/relay.yaml` (in repo) | Relay's concern, not atlas's |
 
-1. **Repo type & URL** — from `.git/config` remote origin
-2. **Default branch** — from `.git/HEAD` or remote HEAD
-3. **Language/framework** — from `package.json`, `Cargo.toml`, `build.gradle`, etc.
-4. **Existing beads** — checks for `.beads/` directory
+**Benefits:**
+- Clone a repo → atlas can pick up its config immediately
+- Team members share project metadata via git
+- Central registry stays tiny and fast to parse
+- No stale central config that drifts from reality
+
+## Cache Layer
+
+Atlas caches per-project configs for cross-project queries (e.g., `/atlas:projects list --tag typescript` needs to read all projects' configs).
+
+```yaml
+# ~/.claude/atlas/cache/projects/digital-web-sdk.yaml
+# Cached copy of <project-path>/.claude/atlas.yaml
+# Refreshed on SessionStart when cwd matches this project
+# Refreshed on explicit /atlas:projects refresh
+
+_cache_meta:
+  source: ~/dev/digital/clients/digital-personalization-web-sdk/.claude/atlas.yaml
+  cached_at: "2026-02-22T10:00:00Z"
+  repo: https://git.angara.cloud/digital/web-sdk
+
+# ... rest is exact copy of the project's .claude/atlas.yaml
+name: "Digital Personalization Web SDK"
+tags: [sdk, typescript, frontend]
+# ...
+```
+
+### Cache Refresh Strategy
+
+| Trigger | What Refreshes |
+|---|---|
+| SessionStart (cwd matches project) | That project's cache entry |
+| `/atlas:projects add` | New project's cache entry |
+| `/atlas:projects refresh` | All projects (walks registry, reads each config) |
+| `/atlas:projects refresh <slug>` | Specific project |
+
+Cache is best-effort. If a project path doesn't exist (unmounted drive, deleted clone), cache serves stale data with a warning.
+
+## Auto-Detection on `projects add`
+
+When registering a new project, atlas auto-detects:
+
+1. **Repo URL** — from `.git/config` remote origin
+2. **Slug** — from directory name (sanitized to lowercase kebab-case)
+3. **Existing `.claude/atlas.yaml`** — reads it immediately if present
+4. **Missing `.claude/atlas.yaml`** — offers to create one with auto-detected values:
+   - `name` from `package.json`, `Cargo.toml`, `build.gradle`, or directory name
+   - `tags` from detected language/framework
+   - `links.ci` guessed from repo URL (GitLab CI, GitHub Actions)
 
 ## Path Matching Rules
 
@@ -136,7 +157,8 @@ For SessionStart project detection:
 
 ## Data Integrity
 
-- `projects.yaml` is the single source of truth
+- `registry.yaml` is the central source of truth for "what projects exist"
+- Per-project `.claude/atlas.yaml` is the source of truth for project metadata
+- Cache is derived, disposable, and auto-refreshed
 - No database, no lock files
-- Concurrent writes: last-write-wins (acceptable for manual registry)
-- Backup: user can version-control `~/.claude/atlas/` in a dotfiles repo
+- Concurrent writes to registry: last-write-wins (acceptable for manual registry)
