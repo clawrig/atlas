@@ -1,1 +1,1 @@
-# claude_plugin_atlas
+# claude-plugin-atlas
