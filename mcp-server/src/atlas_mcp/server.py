@@ -5,6 +5,7 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
+from atlas_mcp.providers import enrich_project, list_providers
 from atlas_mcp.registry import find_project_for_path, get_all_projects
 
 mcp = FastMCP(
@@ -14,16 +15,21 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def atlas_list_projects() -> str:
+def atlas_list_projects(enrich: bool = False) -> str:
     """List all registered projects in the Atlas registry.
+
+    Args:
+        enrich: If true, include data from registered providers (e.g. issue trackers).
+                This is heavier — reads per-project files for each provider.
 
     Returns a JSON array of projects with fields: slug, path, repo, name, summary, tags, group.
     """
     projects = get_all_projects()
-    # Return a clean subset of fields
     result = []
     for p in projects:
-        result.append({
+        if enrich:
+            p = enrich_project(p)
+        entry = {
             "slug": p.get("slug", ""),
             "path": p.get("path", ""),
             "repo": p.get("repo", ""),
@@ -31,7 +37,14 @@ def atlas_list_projects() -> str:
             "summary": p.get("summary", ""),
             "tags": p.get("tags", []),
             "group": p.get("group", ""),
-        })
+        }
+        # Include provider fields when enriched
+        if enrich:
+            for prov in list_providers():
+                field = prov["field_name"]
+                if field in p:
+                    entry[field] = p[field]
+        result.append(entry)
     return json.dumps(result, indent=2)
 
 
@@ -48,8 +61,8 @@ def atlas_get_project(slug: str) -> str:
     projects = get_all_projects()
     for p in projects:
         if p.get("slug") == slug:
-            # Remove internal fields
             p.pop("additional_paths", None)
+            p = enrich_project(p)
             return json.dumps(p, indent=2)
     return json.dumps({"error": f"Project '{slug}' not found"})
 
@@ -112,8 +125,21 @@ def atlas_get_current_project(path: str = "") -> str:
     project = find_project_for_path(target)
     if project:
         project.pop("additional_paths", None)
+        project = enrich_project(project)
         return json.dumps(project, indent=2)
     return json.dumps({"project": None})
+
+
+@mcp.tool()
+def atlas_list_providers() -> str:
+    """List all registered Atlas providers.
+
+    Providers are plugins that contribute extra per-project data (e.g. issue trackers).
+    Returns a JSON array of provider definitions with: name, description, version,
+    project_file, field_name.
+    """
+    providers = list_providers()
+    return json.dumps(providers, indent=2)
 
 
 def main():

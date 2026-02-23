@@ -1,0 +1,45 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  marketplace:
+    name: Update Claude marketplace
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read plugin metadata
+        id: meta
+        run: |
+          echo "name=$(jq -r .name .claude-plugin/plugin.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version .claude-plugin/plugin.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch marketplace update
+        run: |
+          gh api repos/iVintik/private-claude-marketplace/dispatches \
+            -f event_type=plugin-release \
+            -f 'client_payload[plugin]=${{ steps.meta.outputs.name }}' \
+            -f 'client_payload[version]=${{ steps.meta.outputs.version }}'
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}

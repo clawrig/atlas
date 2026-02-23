@@ -8,6 +8,8 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -193,6 +195,31 @@ def fmt_line(slug: str, description: str, width: int = 20) -> str:
     return f"  {slug:<{width}} {description}"
 
 
+MAIL_SERVER_URL = os.environ.get("AGENT_MAIL_URL", "http://localhost:8765")
+MAIL_TIMEOUT_SEC = 2
+
+
+def check_mail_inbox() -> tuple[str | None, str | None]:
+    """Check mcp_agent_mail unified inbox count.
+
+    Returns (count_string, error_string). If server is down, returns (None, error).
+    """
+    try:
+        req = urllib.request.Request(f"{MAIL_SERVER_URL}/health/liveness", method="GET")
+        urllib.request.urlopen(req, timeout=MAIL_TIMEOUT_SEC)
+    except (urllib.error.URLError, OSError):
+        return None, "mail server not running (start with: /toolkit:toolkit-setup)"
+
+    try:
+        req = urllib.request.Request(f"{MAIL_SERVER_URL}/mail/api/unified-inbox", method="GET")
+        resp = urllib.request.urlopen(req, timeout=MAIL_TIMEOUT_SEC)
+        result = json.loads(resp.read())
+        count = len(result.get("messages", []))
+        return str(count), None
+    except (urllib.error.URLError, OSError, json.JSONDecodeError, KeyError):
+        return "0", None
+
+
 def main():
     if not REGISTRY.is_file():
         return
@@ -264,6 +291,9 @@ def main():
                     summaries[current_slug] = summary
                 break
 
+    # --- Check mail inbox ---
+    mail_count, mail_error = check_mail_inbox()
+
     # --- Child discovery (only if NOT in a specific project) ---
     local_registered: list[str] = []  # slugs found locally
     local_unregistered_config: list[str] = []  # slugs discovered with atlas.yaml
@@ -304,10 +334,16 @@ def main():
     if current_slug:
         # Case 1: Inside a registered project
         s = summaries.get(current_slug, "")
-        if s:
-            lines.append(f"[atlas] Current: {current_slug} — {s}")
+        if mail_error:
+            mail_suffix = f" | ⚠ {mail_error}"
+        elif mail_count and mail_count != "0":
+            mail_suffix = f" | mail: {mail_count}"
         else:
-            lines.append(f"[atlas] Current: {current_slug}")
+            mail_suffix = ""
+        if s:
+            lines.append(f"[atlas] Current: {current_slug} — {s}{mail_suffix}")
+        else:
+            lines.append(f"[atlas] Current: {current_slug}{mail_suffix}")
         lines.append("[atlas] Projects:")
 
         # Current project first
