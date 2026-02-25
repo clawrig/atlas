@@ -52,7 +52,7 @@ Atlas Projects (N registered):
   Slug                 Group              Tags                 Summary
   digital-web-sdk      digital-platform   sdk, typescript      Browser JS SDK
   digital-collector    digital-platform   scala, kafka         Event collector
-  clawrig              —                  typescript, node     AI dev workflow
+  fam              —                  typescript, node     AI dev workflow
 ```
 
 ## Subcommand: add

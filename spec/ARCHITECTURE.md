@@ -10,7 +10,7 @@ Atlas is a Claude Code plugin that provides **global project awareness** across 
 2. **Config Discovery** — Pick up `.claude/atlas.yaml` from project repos, cache and serve it
 3. **Session Context Injection** — Detect current project on session start, inject context
 4. **Documentation Bridge** — Connect projects to their docs via Context7 integration
-5. **Foundation for Other Plugins** — Provide project metadata that relay, beads, clawrig build on
+5. **Foundation for Other Plugins** — Provide project metadata that relay, beads, fam build on
 
 ## Key Architectural Decision
 
@@ -82,7 +82,7 @@ Everything else comes from the project's own config file.
 
 ### 5. Foundation, Not Framework
 
-Atlas provides data. It doesn't enforce workflows. Relay owns issue routing. Beads owns local issues. ClawRig owns session orchestration. Atlas just answers: "What project is this? What do I know about it?"
+Atlas provides data. It doesn't enforce workflows. Relay owns issue routing. Beads owns local issues. Fam owns session orchestration. Atlas just answers: "What project is this? What do I know about it?"
 
 ### 6. Cross-Tool Compatibility
 

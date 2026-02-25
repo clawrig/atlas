@@ -329,6 +329,10 @@ def main():
 
     # --- Build output ---
     lines: list[str] = []
+    lines.append(
+        "[atlas] Use atlas_search_projects to find project repo paths. "
+        "NEVER edit files under ~/.claude/plugins/cache/ — use atlas to find the real repo."
+    )
     has_local = local_registered or local_unregistered_config or local_unregistered_git
 
     if current_slug:

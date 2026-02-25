@@ -30,9 +30,9 @@ projects:
     additional_paths:
       - ~/dev/digital/clients/digital-personalization-tags
 
-  clawrig:
-    path: ~/dev/personal/clawrig
-    repo: https://github.com/iVintik/clawrig
+  fam:
+    path: ~/dev/personal/fam
+    repo: https://github.com/iVintik/fam
 ```
 
 ## Per-Project Config: `<project-root>/.claude/atlas.yaml`

@@ -1,9 +1,9 @@
 {
   "name": "atlas",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Project registry and cross-project awareness for Claude Code sessions",
   "author": {
-    "name": "ClawRig"
+    "name": "Fam"
   },
-  "repository": "https://github.com/clawrig/atlas"
+  "repository": "https://github.com/fam/atlas"
 }

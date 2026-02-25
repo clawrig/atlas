@@ -201,7 +201,7 @@ If Context7 MCP is not installed:
   digital-web-sdk *  Browser JS SDK for content personalization — TypeScript, Vite
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
-  clawrig            AI dev workflow orchestration — TypeScript, Node
+  fam            AI dev workflow orchestration — TypeScript, Node
 ```
 
 No child discovery needed — we're in a specific project.
@@ -217,8 +217,8 @@ No child discovery needed — we're in a specific project.
   digital-router       (not registered — /atlas:projects add)
   digital-s3-loader    (not registered — /atlas:projects add)
 [atlas] Other projects:
-  clawrig              AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas        Project registry for Claude sessions — Claude plugin
+  fam              AI dev workflow orchestration — TypeScript, Node
+  fam-atlas        Project registry for Claude sessions — Claude plugin
 ```
 
 "Local projects" = found inside cwd (registered + discovered). "Other projects" = registered but elsewhere.
@@ -228,7 +228,7 @@ No child discovery needed — we're in a specific project.
 ```
 [atlas] Projects:
   digital-web-sdk    Browser JS SDK for content personalization — TypeScript, Vite
-  clawrig            AI dev workflow orchestration — TypeScript, Node
+  fam            AI dev workflow orchestration — TypeScript, Node
   ...
 ```
 
