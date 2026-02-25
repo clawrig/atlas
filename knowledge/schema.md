@@ -30,9 +30,9 @@ projects:
     additional_paths:
       - ~/dev/digital/clients/digital-personalization-tags
 
-  fam:
-    path: ~/dev/personal/fam
-    repo: https://github.com/iVintik/fam
+  my-tool:
+    path: ~/dev/personal/my-tool
+    repo: https://github.com/user/my-tool
 ```
 
 ## Per-Project Config: `<project-root>/.claude/atlas.yaml`

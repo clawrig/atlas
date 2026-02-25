@@ -58,15 +58,7 @@ Atlas is aware of beads but does not depend on it:
 - Atlas project detection runs BEFORE beads' `bd prime` (hook ordering)
 - Atlas injects project context that beads' task-agent can use for orientation
 
-## Fam / OpenClaw Integration
-
-### @fam/project-ref MCP Server
-
-Atlas complements fam's project-ref MCP server:
-- **project-ref** provides cross-project file read access to Claude Code
-- **atlas** provides project metadata and discovery
-
-Future: atlas registry could feed project-ref its project list, eliminating duplicate configuration.
+## OpenClaw Integration
 
 ### OpenClaw Skills
 
@@ -105,8 +97,8 @@ On every SessionStart, atlas outputs a compact index of ALL registered projects:
   digital-web-sdk *  Browser JS SDK for content personalization — TypeScript, Vite
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
-  fam            AI dev workflow orchestration — TypeScript, Node
-  fam-atlas      Project registry for Claude sessions — Claude plugin
+  my-tool        AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas  Project registry for Claude sessions — Claude plugin
 ```
 
 Each line is a slug + the `summary` field from the project's `.claude/atlas.yaml`. This costs ~50 tokens per project — negligible for typical registries (5-30 projects).

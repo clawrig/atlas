@@ -48,7 +48,7 @@ Atlas Projects (N registered):
   Slug                 Group              Tags                 Summary
   digital-web-sdk      digital-platform   sdk, typescript      Browser JS SDK for content personalization
   digital-collector    digital-platform   scala, kafka         Snowplow event collector service
-  fam              —                  typescript, node     AI dev workflow orchestration
+  my-tool          —                  typescript, node     AI dev workflow orchestration
 ```
 
 ## Subcommand: add

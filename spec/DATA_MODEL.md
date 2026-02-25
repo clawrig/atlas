@@ -26,9 +26,9 @@ projects:
     path: ~/dev/digital/clients/digital-personalization-web-sdk
     repo: https://git.angara.cloud/digital/web-sdk
 
-  fam:
-    path: ~/dev/personal/fam
-    repo: https://github.com/iVintik/fam
+  my-tool:
+    path: ~/dev/personal/my-tool
+    repo: https://github.com/user/my-tool
 
   digital-collector:
     path: ~/dev/digital/digital-collector
@@ -191,8 +191,8 @@ If cwd is a workspace root (e.g., `~/dev/digital/`), atlas scans for projects in
   digital-router       (discovered, not registered — use /atlas:projects add)
   digital-s3-loader    (discovered, not registered — use /atlas:projects add)
 [atlas] All projects:
-  fam              AI dev workflow orchestration — TypeScript, Node
-  fam-atlas        Project registry for Claude sessions — Claude plugin
+  my-tool          AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas    Project registry for Claude sessions — Claude plugin
 ```
 
 `*` = registered and has `.claude/atlas.yaml`. Discovered projects get auto-registered if the user confirms.
@@ -223,8 +223,8 @@ On every SessionStart, atlas outputs the full project index — one line per reg
   digital-web-sdk    Browser JS SDK for content personalization — TypeScript, Vite
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
-  fam            AI dev workflow orchestration — TypeScript, Node
-  fam-atlas      Project registry for Claude sessions — Claude plugin
+  my-tool        AI dev workflow orchestration — TypeScript, Node
+  clawrig-atlas  Project registry for Claude sessions — Claude plugin
 ```
 
 This gives Claude enough awareness to:

@@ -1,14 +1,14 @@
 {
-  "name": "fam-atlas",
-  "version": "0.4.0",
+  "name": "clawrig-atlas",
+  "version": "0.5.0",
   "type": "module",
-  "description": "Fam Atlas - project registry and cross-project awareness for OpenClaw",
+  "description": "ClawRig Atlas - project registry and cross-project awareness for OpenClaw",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fam/atlas.git"
+    "url": "https://github.com/clawrig/atlas.git"
   },
-  "keywords": ["openclaw", "openclaw-plugin", "fam", "project-registry", "agent-workflows"],
+  "keywords": ["openclaw", "openclaw-plugin", "clawrig", "project-registry", "agent-workflows"],
   "files": ["index.ts", "openclaw.plugin.json", "openclaw-skills", "LICENSE"],
   "openclaw": { "extensions": ["./index.ts"] },
   "peerDependencies": { "openclaw": "*" }
