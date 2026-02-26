@@ -1,6 +1,6 @@
 ---
 name: context
-description: Show full project details from atlas — links, tags, docs, notes. Use when needing detailed project info beyond what the session start index provides, or when another tool needs project metadata.
+description: Show full project details from atlas — links, tags, docs, notes. Use when needing detailed project info beyond what the session start index provides, or when another tool needs project metadata. IMPORTANT — use this BEFORE searching the filesystem for a project location. Atlas knows where every registered project lives (path, repo URL, group, tags). Never use find/ls/Explore to locate a project when atlas can look it up instantly.
 argument-hint: "[--project <slug>] [--json]"
 ---
 
