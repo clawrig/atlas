@@ -1,14 +1,14 @@
 {
-  "name": "clawrig-atlas",
+  "name": "famdeck-atlas",
   "version": "0.5.0",
   "type": "module",
-  "description": "ClawRig Atlas - project registry and cross-project awareness for OpenClaw",
+  "description": "Famdeck Atlas - project registry and cross-project awareness for OpenClaw",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/clawrig/atlas.git"
+    "url": "https://github.com/famdeck/atlas.git"
   },
-  "keywords": ["openclaw", "openclaw-plugin", "clawrig", "project-registry", "agent-workflows"],
+  "keywords": ["openclaw", "openclaw-plugin", "famdeck", "project-registry", "agent-workflows"],
   "files": ["index.ts", "openclaw.plugin.json", "openclaw-skills", "LICENSE"],
   "openclaw": { "extensions": ["./index.ts"] },
   "peerDependencies": { "openclaw": "*" }

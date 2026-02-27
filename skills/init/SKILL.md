@@ -44,7 +44,7 @@ If it already exists, leave it as-is.
 1. Read `~/.claude/settings.local.json` (create `{}` if it doesn't exist)
 2. Determine the absolute path to the hook script. The plugin root is the directory containing `.claude-plugin/plugin.json`. From the plugin root, the script is at `hooks/scripts/session-start.py`.
    - To find the plugin root: use the path of this skill file and navigate up to find `.claude-plugin/plugin.json`
-   - The plugin is installed at a path like `/Users/.../clawrig-atlas/` — resolve this to an absolute path
+   - The plugin is installed at a path like `/Users/.../famdeck-atlas/` — resolve this to an absolute path
 3. Add a SessionStart hook entry. Use Bash with `jq` to merge:
 
 ```bash

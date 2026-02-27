@@ -1,6 +1,6 @@
 {
-  "id": "clawrig-atlas",
-  "name": "ClawRig Atlas",
+  "id": "famdeck-atlas",
+  "name": "Famdeck Atlas",
   "description": "Project registry and cross-project awareness — add, list, show, edit, and manage projects",
   "skills": ["./openclaw-skills"],
   "configSchema": {

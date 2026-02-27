@@ -218,7 +218,7 @@ No child discovery needed — we're in a specific project.
   digital-s3-loader    (not registered — /atlas:projects add)
 [atlas] Other projects:
   my-tool          AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas    Project registry for Claude sessions — Claude plugin
+  famdeck-atlas    Project registry for Claude sessions — Claude plugin
 ```
 
 "Local projects" = found inside cwd (registered + discovered). "Other projects" = registered but elsewhere.

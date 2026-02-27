@@ -3,7 +3,7 @@
   "version": "0.5.1",
   "description": "Project registry and cross-project awareness for Claude Code sessions",
   "author": {
-    "name": "ClawRig"
+    "name": "Famdeck"
   },
-  "repository": "https://github.com/clawrig/atlas"
+  "repository": "https://github.com/famdeck/atlas"
 }

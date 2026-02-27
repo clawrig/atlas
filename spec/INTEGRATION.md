@@ -98,7 +98,7 @@ On every SessionStart, atlas outputs a compact index of ALL registered projects:
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
   my-tool        AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas  Project registry for Claude sessions — Claude plugin
+  famdeck-atlas  Project registry for Claude sessions — Claude plugin
 ```
 
 Each line is a slug + the `summary` field from the project's `.claude/atlas.yaml`. This costs ~50 tokens per project — negligible for typical registries (5-30 projects).

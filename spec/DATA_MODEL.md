@@ -192,7 +192,7 @@ If cwd is a workspace root (e.g., `~/dev/digital/`), atlas scans for projects in
   digital-s3-loader    (discovered, not registered — use /atlas:projects add)
 [atlas] All projects:
   my-tool          AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas    Project registry for Claude sessions — Claude plugin
+  famdeck-atlas    Project registry for Claude sessions — Claude plugin
 ```
 
 `*` = registered and has `.claude/atlas.yaml`. Discovered projects get auto-registered if the user confirms.
@@ -224,7 +224,7 @@ On every SessionStart, atlas outputs the full project index — one line per reg
   digital-collector  Snowplow event collector service — Scala, Kafka
   digital-enrich     Event enrichment pipeline — Scala, Kafka
   my-tool        AI dev workflow orchestration — TypeScript, Node
-  clawrig-atlas  Project registry for Claude sessions — Claude plugin
+  famdeck-atlas  Project registry for Claude sessions — Claude plugin
 ```
 
 This gives Claude enough awareness to:

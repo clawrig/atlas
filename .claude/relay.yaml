@@ -1,0 +1,8 @@
+issue_trackers:
+  - name: github
+    type: github
+    default: true
+    repo: "famdeck/atlas"
+  - name: beads
+    type: beads
+    scope: local
