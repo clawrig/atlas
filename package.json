@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/famdeck/atlas.git"
+    "url": "https://github.com/famdeck/famdeck-atlas.git"
   },
   "keywords": ["openclaw", "openclaw-plugin", "famdeck", "project-registry", "agent-workflows"],
   "files": ["index.ts", "openclaw.plugin.json", "openclaw-skills", "LICENSE"],
