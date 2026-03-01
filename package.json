@@ -1,6 +1,6 @@
 {
   "name": "famdeck-atlas",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "type": "module",
   "description": "Famdeck Atlas - project registry and cross-project awareness for OpenClaw",
   "license": "MIT",
