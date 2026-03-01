@@ -1,14 +1,12 @@
 # Famdeck Atlas
 
-Project registry and cross-project awareness for Claude Code. Maps project slugs to filesystem paths, caches per-project metadata, and provides session context so Claude always knows which project you're in and what other projects exist.
+Project registry and cross-project awareness for [Claude Code](https://claude.ai/claude-code). Every session starts knowing which project you're in and what other projects exist. Slash commands let you manage the registry; an MCP server lets other plugins query it programmatically.
 
 Part of the [Famdeck](https://github.com/famdeck/famdeck) autonomous development toolkit.
 
 ## Installation
 
 ### Via Marketplace (recommended)
-
-Atlas is a Claude Code plugin distributed through the [famdeck-toolkit](https://github.com/famdeck/famdeck-toolkit):
 
 ```bash
 claude plugin marketplace add iVintik/private-claude-marketplace
@@ -23,67 +21,129 @@ claude plugin install famdeck-toolkit@ivintik
 /toolkit:toolkit-setup
 ```
 
-### Manual Install
+### First-Time Setup
 
-```bash
-git clone https://github.com/famdeck/famdeck-atlas.git
-```
-
-Requires: Python >= 3.10, [uv](https://docs.astral.sh/uv/).
-
-Initialize in any Claude Code session:
+After installing, run in any Claude Code session:
 
 ```
-/atlas:init
+> /atlas:init
+
+Creating ~/.claude/atlas/...
+Registering SessionStart hook...
+Scanning ~/dev for projects...
+
+Found 8 git repos:
+  Slug                 Path                              atlas.yaml?
+  my-app               ~/dev/personal/my-app             yes
+  web-sdk              ~/dev/digital/clients/web-sdk     yes
+  collector            ~/dev/digital/collector            no
+  ...
+
+Register all, let me choose, or skip?
 ```
 
-This creates `~/.claude/atlas/`, registers the SessionStart hook, scans for projects, and adds them to the registry.
+This creates the registry, installs the session hook, and discovers projects.
 
 ## How It Works
 
-Atlas has three layers:
+### Automatic Session Context
 
-1. **SessionStart Hook** — runs at the start of every Claude Code session. Detects the current project from `$PWD`, lists all registered projects with summaries, and checks Agent Mail inbox. Output goes into Claude's context.
-
-2. **MCP Server** — a Python server (FastMCP) that exposes the registry as structured tools. Other plugins and agents query it to find project paths, search by tag/group, and get enriched metadata from providers.
-
-3. **Skills** — slash commands for humans to manage the registry interactively.
-
-### Session Context
-
-Every session starts with a project index:
+Every Claude Code session starts with a project index — injected automatically by the SessionStart hook:
 
 ```
-[atlas] Current: my-project — AI dev workflow toolkit
+[atlas] Current: my-app — AI dev workflow toolkit
 [atlas] Projects:
-  my-project           AI dev workflow toolkit
-  digital-web-sdk      Browser JS SDK for content personalization
-  digital-collector    Snowplow event collector service
+  my-app               AI dev workflow toolkit
+  web-sdk              Browser JS SDK for content personalization
+  collector            Snowplow event collector service
 ```
 
-When you `cd` to a workspace root containing multiple repos, Atlas switches to workspace mode — showing which local repos are registered and which aren't.
+Claude always knows which project you're in and what other projects exist. No need to explain your repo layout every session.
+
+When you open a session in a workspace root containing multiple repos, Atlas switches to workspace mode — showing which local repos are registered and which aren't.
+
+### Three Layers
+
+1. **SessionStart Hook** — detects the current project from `$PWD`, lists all registered projects with summaries, injects into Claude's context
+2. **MCP Server** — FastMCP server exposing the registry as structured tools for other plugins and agents
+3. **Skills** — slash commands for humans to manage the registry interactively
 
 ## Skills
 
-| Command | What it does |
-|---------|-------------|
-| `/atlas:init` | First-time setup — directories, hook registration, project scanning |
-| `/atlas:projects` | List all registered projects |
-| `/atlas:projects add` | Register the current directory as a project |
-| `/atlas:projects show [slug]` | Show full project details |
-| `/atlas:projects edit [slug]` | Edit a project's atlas.yaml config |
-| `/atlas:projects remove <slug>` | Unregister a project |
-| `/atlas:projects link <name> <url>` | Add a quick-access link to a project |
-| `/atlas:projects refresh` | Rebuild cache from project configs |
-| `/atlas:context [--project slug]` | Show detailed project metadata (links, tags, docs, notes) |
+### `/atlas:projects` — Manage the Registry
 
-## MCP Server Tools
+```
+> /atlas:projects
 
-The MCP server exposes five tools for programmatic access:
+Slug                 Group      Tags                 Summary
+my-app               famdeck    python, ai           AI dev workflow toolkit
+web-sdk              digital    typescript, sdk      Browser JS SDK
+collector            digital    scala, kafka         Snowplow event collector
+
+> /atlas:projects add
+Detected: my-new-repo at ~/dev/personal/my-new-repo
+  Remote: https://github.com/user/my-new-repo
+  Slug: my-new-repo
+Registered. Created .claude/atlas.yaml with auto-detected metadata.
+
+> /atlas:projects show web-sdk
+Name: Digital Web SDK
+Path: ~/dev/digital/clients/web-sdk
+Repo: https://github.com/org/web-sdk
+Group: digital
+Tags: typescript, sdk, browser
+Links:
+  docs → https://docs.example.com/web-sdk
+  ci   → https://github.com/org/web-sdk/actions
+Notes: Build with npm run build. Test with npm test.
+
+> /atlas:projects edit web-sdk        # interactive editing of atlas.yaml
+> /atlas:projects remove old-project  # with confirmation
+> /atlas:projects link docs https://docs.example.com  # quick-add link
+> /atlas:projects refresh             # rebuild cache from project configs
+```
+
+Filter by group or tag:
+
+```
+> /atlas:projects list --group digital
+> /atlas:projects list --tag python
+```
+
+### `/atlas:context` — Detailed Project Info
+
+```
+> /atlas:context
+
+Project: My App (my-app)
+Path: ~/dev/personal/my-app
+Repo: https://github.com/user/my-app
+Group: famdeck
+Tags: python, ai, automation
+
+Links:
+  docs → https://docs.example.com
+  ci   → https://github.com/user/my-app/actions
+
+Docs:
+  Context7: /npm/my-lib
+  Local: docs/
+
+Notes:
+  Build: pip install -e ".[dev]"
+  Test: python -m pytest tests/ -q
+
+> /atlas:context --project web-sdk    # view another project
+> /atlas:context --json               # machine-readable output
+```
+
+## MCP Server
+
+The MCP server exposes five tools for programmatic access by other plugins and agents:
 
 | Tool | Description |
 |------|-------------|
-| `atlas_list_projects` | List all registered projects (optional enrichment from providers) |
+| `atlas_list_projects` | List all registered projects (optional provider enrichment) |
 | `atlas_get_project` | Get full metadata for a project by slug |
 | `atlas_search_projects` | Search by name/slug, tag, or group |
 | `atlas_get_current_project` | Detect which project a filesystem path belongs to |
@@ -91,7 +151,7 @@ The MCP server exposes five tools for programmatic access:
 
 ### Providers
 
-Providers are plugins that contribute extra per-project data. Two types:
+Providers are plugins that contribute extra per-project data:
 
 - **file** — reads a per-project YAML file (e.g., Relay reads `.claude/relay.yaml` to report tracker config)
 - **mcp_query** — queries an HTTP endpoint for live data (e.g., Agent Mail inbox count)
@@ -106,9 +166,9 @@ Maps project slugs to filesystem paths:
 
 ```yaml
 projects:
-  my-project:
-    path: ~/dev/personal/my-project
-    repo: https://github.com/user/my-project
+  my-app:
+    path: ~/dev/personal/my-app
+    repo: https://github.com/user/my-app
 
   web-sdk:
     path: ~/dev/digital/clients/web-sdk
@@ -122,14 +182,14 @@ projects:
 Lives in the project repo, version-controlled:
 
 ```yaml
-name: My Project
+name: My App
 summary: AI dev workflow toolkit
 tags: [python, ai, automation]
 group: famdeck
 
 links:
   docs: https://docs.example.com
-  ci: https://github.com/user/my-project/actions
+  ci: https://github.com/user/my-app/actions
 
 docs:
   context7_id: "/npm/my-lib"
@@ -157,23 +217,20 @@ Atlas detects the current project using path matching:
 ```
 famdeck-atlas/
   skills/
-    context/SKILL.md        # /atlas:context — show project details
-    init/SKILL.md           # /atlas:init — first-time setup
-    projects/SKILL.md       # /atlas:projects — registry management
+    context/SKILL.md           # /atlas:context — show project details
+    init/SKILL.md              # /atlas:init — first-time setup
+    projects/SKILL.md          # /atlas:projects — registry management
   mcp-server/
     src/atlas_mcp/
-      server.py             # FastMCP server with 5 tools
-      registry.py           # Registry parsing, cache reading, path matching
-      providers.py          # Provider system (file + mcp_query)
-    pyproject.toml          # Python package config (requires mcp[cli])
+      server.py                # FastMCP server with 5 tools
+      registry.py              # Registry parsing, cache, path matching
+      providers.py             # Provider system (file + mcp_query)
+    pyproject.toml             # Python package config
   hooks/
-    hooks.json              # SessionStart hook definition
-    scripts/session-start.py  # Project detection, index generation
+    hooks.json                 # SessionStart hook definition
+    scripts/session-start.py   # Project detection, index generation
   knowledge/
-    schema.md               # Registry and config schema reference
-  openclaw.plugin.json      # Plugin manifest
-  package.json              # Plugin metadata
-  index.ts                  # Plugin entry point
+    schema.md                  # Registry and config schema reference
 ```
 
 ## License
