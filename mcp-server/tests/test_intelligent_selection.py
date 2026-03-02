@@ -6,6 +6,8 @@ Story 3.4 implementation — heuristic query classification with tool routing.
 import json
 from unittest.mock import patch
 
+import pytest
+
 from atlas_mcp.server import (
     _classify_query,
     _extract_file_path,
@@ -221,9 +223,6 @@ class TestAtlasQuery:
 
 
 # --- Fixtures (reused from test_semantic_navigation) ---
-
-
-import pytest  # noqa: E402
 
 
 @pytest.fixture

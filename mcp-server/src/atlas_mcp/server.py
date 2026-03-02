@@ -753,9 +753,12 @@ def atlas_query(project: str, query: str, max_results: int = 20) -> str:
             inner = atlas_read_file(project, file_path)
             tool_used = "atlas_read_file"
         else:
-            # No clear path — try glob with a best-guess pattern
-            inner = atlas_glob(project, "**/*")
-            tool_used = "atlas_glob"
+            # No clear path — return helpful error instead of expensive **/* glob
+            inner = json.dumps({
+                "error": "No file path detected in query. Use atlas_read_file with a specific path, "
+                "or atlas_glob with a pattern like '*.py'.",
+            })
+            tool_used = "atlas_read_file"
 
     elif query_type == "symbol":
         symbol_name = _extract_symbol_name(query)
