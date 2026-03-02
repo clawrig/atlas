@@ -2,11 +2,18 @@
 
 import json
 import os
+import re
+from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
 from atlas_mcp.providers import enrich_project, list_providers
-from atlas_mcp.registry import find_project_for_path, get_all_projects
+from atlas_mcp.registry import (
+    find_project_by_slug,
+    find_project_for_path,
+    get_all_projects,
+    resolve_project_path,
+)
 
 mcp = FastMCP(
     "atlas",
@@ -140,6 +147,147 @@ def atlas_list_providers() -> str:
     """
     providers = list_providers()
     return json.dumps(providers, indent=2)
+
+
+_MAX_FILE_SIZE = 1_048_576  # 1 MB
+
+
+@mcp.tool()
+def atlas_read_file(project: str, path: str) -> str:
+    """Read a file from a registered project.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        path: File path relative to the project root.
+
+    Returns JSON with 'content' on success or 'error' on failure.
+    """
+    try:
+        target = resolve_project_path(project, path)
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+
+    if not target.is_file():
+        return json.dumps({"error": f"File not found: {path}"})
+
+    size = target.stat().st_size
+    if size > _MAX_FILE_SIZE:
+        return json.dumps({
+            "error": f"File too large ({size} bytes, max {_MAX_FILE_SIZE})",
+            "size": size,
+        })
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return json.dumps({"error": f"Binary or non-UTF-8 file: {path}"})
+
+    return json.dumps({"content": content, "path": path, "size": size})
+
+
+@mcp.tool()
+def atlas_grep(
+    project: str,
+    pattern: str,
+    glob: str = "",
+    max_results: int = 100,
+) -> str:
+    """Search file contents in a registered project using a regex pattern.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        pattern: Regular expression pattern to search for.
+        glob: Optional glob pattern to filter files (e.g., '*.py', 'src/**/*.ts').
+        max_results: Maximum number of matching lines to return (default 100).
+
+    Returns JSON array of matches with file, line number, and content.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    try:
+        regex = re.compile(pattern)
+    except re.error as e:
+        return json.dumps({"error": f"Invalid regex pattern: {e}"})
+
+    # Collect files to search
+    if glob:
+        files = sorted(project_root.glob(glob))
+    else:
+        files = sorted(f for f in project_root.rglob("*") if f.is_file())
+
+    # Filter out common non-text directories
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
+    matches = []
+
+    for filepath in files:
+        if not filepath.is_file():
+            continue
+        # Skip files in hidden/build directories
+        if any(part in skip_dirs for part in filepath.relative_to(project_root).parts):
+            continue
+
+        try:
+            text = filepath.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError):
+            continue
+
+        for i, line in enumerate(text.splitlines(), start=1):
+            if regex.search(line):
+                matches.append({
+                    "file": str(filepath.relative_to(project_root)),
+                    "line": i,
+                    "content": line.rstrip(),
+                })
+                if len(matches) >= max_results:
+                    return json.dumps({
+                        "matches": matches,
+                        "truncated": True,
+                        "max_results": max_results,
+                    })
+
+    return json.dumps({"matches": matches, "truncated": False})
+
+
+@mcp.tool()
+def atlas_glob(project: str, pattern: str) -> str:
+    """List files in a registered project matching a glob pattern.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        pattern: Glob pattern to match (e.g., 'src/**/*.ts', '*.py').
+
+    Returns JSON array of relative file paths sorted alphabetically.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    files = sorted(project_root.glob(pattern))
+
+    # Filter: only files, skip .git etc, validate within project boundary
+    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
+    results = []
+    for f in files:
+        if not f.is_file():
+            continue
+        rel = f.relative_to(project_root)
+        if any(part in skip_dirs for part in rel.parts):
+            continue
+        if not f.resolve().is_relative_to(project_root):
+            continue
+        results.append(str(rel))
+
+    return json.dumps({"files": results, "count": len(results)})
 
 
 def main():

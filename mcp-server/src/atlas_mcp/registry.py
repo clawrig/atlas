@@ -203,6 +203,52 @@ def get_all_projects() -> list[dict]:
     return projects
 
 
+def find_project_by_slug(slug: str) -> dict | None:
+    """Find a project by its slug. Returns project dict or None."""
+    for p in get_all_projects():
+        if p.get("slug") == slug:
+            return p
+    return None
+
+
+def resolve_project_path(slug: str, relative_path: str) -> Path:
+    """Resolve a relative file path within a registered project.
+
+    Validates that the slug exists in the registry and that the resolved
+    path does not escape the project root (prevents path traversal).
+
+    Args:
+        slug: Project slug from the registry.
+        relative_path: Path relative to the project root.
+
+    Returns:
+        Resolved absolute Path within the project.
+
+    Raises:
+        ValueError: If slug not found or path escapes project boundary.
+    """
+    project = find_project_by_slug(slug)
+    if not project:
+        raise ValueError(f"Project '{slug}' not found in registry")
+
+    project_path = project.get("path", "")
+    if not project_path:
+        raise ValueError(f"Project '{slug}' has no path configured")
+
+    project_root = expand_path(project_path).resolve()
+    if not project_root.is_dir():
+        raise ValueError(f"Project path does not exist: {project_root}")
+
+    target = (project_root / relative_path).resolve()
+
+    if not target.is_relative_to(project_root):
+        raise ValueError(
+            f"Path '{relative_path}' escapes project boundary for '{slug}'"
+        )
+
+    return target
+
+
 def find_project_for_path(target_path: str) -> dict | None:
     """Find the project that matches a given filesystem path.
 
