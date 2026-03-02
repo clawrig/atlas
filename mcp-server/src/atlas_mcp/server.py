@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -75,6 +76,7 @@ def atlas_get_project(slug: str) -> str:
         if p.get("slug") == slug:
             p.pop("additional_paths", None)
             p = enrich_project(p)
+            p["serena_available"] = _has_serena(p.get("path", ""))
             return json.dumps(p, indent=2)
     return json.dumps({"error": f"Project '{slug}' not found"})
 
@@ -303,6 +305,387 @@ def atlas_glob(project: str, pattern: str) -> str:
         results.append(str(rel))
 
     return json.dumps({"project": project, "files": results, "count": len(results)})
+
+
+_MAX_OUTPUT_SIZE = 1_048_576  # 1 MB output limit for commands
+_MAX_COMMAND_TIMEOUT = 120  # seconds
+
+# Regex patterns for symbol extraction (fallback when Serena unavailable)
+_SYMBOL_PATTERNS = {
+    "python": [
+        (re.compile(r"^(\s*)class\s+(\w+)"), "class"),
+        (re.compile(r"^(\s*)(?:async\s+)?def\s+(\w+)"), "function"),
+    ],
+    "typescript": [
+        (re.compile(r"^(\s*)(?:export\s+)?class\s+(\w+)"), "class"),
+        (re.compile(r"^(\s*)(?:export\s+)?(?:async\s+)?function\s+(\w+)"), "function"),
+        (re.compile(r"^(\s*)(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\("), "function"),
+        (re.compile(r"^(\s*)(?:export\s+)?interface\s+(\w+)"), "interface"),
+        (re.compile(r"^(\s*)(?:export\s+)?type\s+(\w+)\s*="), "type"),
+    ],
+    "javascript": [
+        (re.compile(r"^(\s*)(?:export\s+)?class\s+(\w+)"), "class"),
+        (re.compile(r"^(\s*)(?:export\s+)?(?:async\s+)?function\s+(\w+)"), "function"),
+        (re.compile(r"^(\s*)(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\("), "function"),
+    ],
+}
+
+_EXT_TO_LANG = {
+    ".py": "python",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+}
+
+
+def _has_serena(project_path: str) -> bool:
+    """Check if a project has Serena configured (.serena/project.yml exists)."""
+    serena_config = Path(project_path).expanduser().resolve() / ".serena" / "project.yml"
+    return serena_config.is_file()
+
+
+def _extract_symbols_from_file(filepath: Path, project_root: Path) -> list[dict]:
+    """Extract symbol definitions from a file using regex patterns."""
+    ext = filepath.suffix.lower()
+    lang = _EXT_TO_LANG.get(ext)
+    if not lang:
+        return []
+
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, PermissionError):
+        return []
+
+    patterns = _SYMBOL_PATTERNS.get(lang, [])
+    symbols = []
+    lines = text.splitlines()
+
+    for i, line in enumerate(lines, start=1):
+        for pattern, symbol_type in patterns:
+            m = pattern.match(line)
+            if m:
+                indent = m.group(1)
+                name = m.group(2)
+                # Determine depth by indentation
+                depth = len(indent) // 4 if indent else 0
+                symbols.append({
+                    "name": name,
+                    "type": symbol_type,
+                    "file": str(filepath.relative_to(project_root)),
+                    "line": i,
+                    "depth": depth,
+                })
+                break
+
+    return symbols
+
+
+@mcp.tool()
+def atlas_find_symbol(
+    project: str,
+    name: str,
+    include_body: bool = False,
+    depth: int = 0,
+) -> str:
+    """Find symbol definitions (classes, functions, types) in a registered project.
+
+    Uses regex-based symbol extraction. Reports whether Serena is available
+    for richer semantic analysis via its own MCP tools.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        name: Symbol name or substring to search for (case-sensitive).
+        include_body: If true, include the symbol's source code body.
+        depth: Maximum nesting depth to include (0 = top-level only).
+
+    Returns JSON with matching symbols and approach used ('regex' or 'semantic').
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    serena = _has_serena(proj["path"])
+
+    # Collect all source files
+    matches = []
+    files_scanned = 0
+
+    for filepath in sorted(project_root.rglob("*")):
+        if not filepath.is_file():
+            continue
+        if filepath.suffix.lower() not in _EXT_TO_LANG:
+            continue
+        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
+            continue
+
+        files_scanned += 1
+        if files_scanned > _MAX_GREP_FILES:
+            break
+
+        symbols = _extract_symbols_from_file(filepath, project_root)
+        for sym in symbols:
+            if name in sym["name"] and sym["depth"] <= depth:
+                if include_body:
+                    sym["body"] = _extract_body(filepath, sym["line"])
+                matches.append(sym)
+
+    return json.dumps({
+        "project": project,
+        "symbols": matches,
+        "approach": "regex",
+        "serena_available": serena,
+        "hint": "Use Serena MCP tools directly for richer semantic analysis"
+        if serena else "Serena not configured for this project",
+    })
+
+
+def _extract_body(filepath: Path, start_line: int, max_lines: int = 50) -> str:
+    """Extract the body of a symbol starting at the given line."""
+    try:
+        lines = filepath.read_text(encoding="utf-8").splitlines()
+    except (UnicodeDecodeError, PermissionError):
+        return ""
+
+    if start_line < 1 or start_line > len(lines):
+        return ""
+
+    # Get starting indentation
+    start_idx = start_line - 1
+    start_text = lines[start_idx]
+    base_indent = len(start_text) - len(start_text.lstrip())
+
+    body_lines = [lines[start_idx]]
+    for i in range(start_idx + 1, min(start_idx + max_lines, len(lines))):
+        line = lines[i]
+        # Empty lines are part of the body
+        if line.strip() == "":
+            body_lines.append(line)
+            continue
+        # Line at same or lesser indentation (and non-empty) means end of body
+        current_indent = len(line) - len(line.lstrip())
+        if current_indent <= base_indent:
+            break
+        body_lines.append(line)
+
+    return "\n".join(body_lines)
+
+
+@mcp.tool()
+def atlas_symbols_overview(project: str, path: str = "") -> str:
+    """Get an overview of symbols (classes, functions, types) in a project or file.
+
+    Uses regex-based extraction. Reports whether Serena is available
+    for richer semantic analysis via its own MCP tools.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        path: Relative file or directory path within the project. Empty for project root.
+
+    Returns JSON with symbol overview grouped by file.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    serena = _has_serena(proj["path"])
+
+    target = (project_root / path).resolve() if path else project_root
+    if not target.is_relative_to(project_root):
+        return json.dumps({"error": f"Path '{path}' escapes project boundary"})
+
+    files_with_symbols = []
+    files_scanned = 0
+
+    if target.is_file():
+        file_list = [target]
+    else:
+        file_list = sorted(target.rglob("*"))
+
+    for filepath in file_list:
+        if not filepath.is_file():
+            continue
+        if filepath.suffix.lower() not in _EXT_TO_LANG:
+            continue
+        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
+            continue
+
+        files_scanned += 1
+        if files_scanned > _MAX_GREP_FILES:
+            break
+
+        symbols = _extract_symbols_from_file(filepath, project_root)
+        if symbols:
+            files_with_symbols.append({
+                "file": str(filepath.relative_to(project_root)),
+                "symbols": symbols,
+            })
+
+    return json.dumps({
+        "project": project,
+        "path": path or ".",
+        "files": files_with_symbols,
+        "approach": "regex",
+        "serena_available": serena,
+        "hint": "Use Serena MCP tools directly for richer semantic analysis"
+        if serena else "Serena not configured for this project",
+    })
+
+
+@mcp.tool()
+def atlas_find_references(project: str, symbol: str, max_results: int = 50) -> str:
+    """Find references to a symbol across a registered project's codebase.
+
+    Falls back to text-based grep when Serena is not available.
+    Reports whether Serena is available for richer semantic reference finding.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        symbol: Symbol name to search references for.
+        max_results: Maximum number of references to return (default 50).
+
+    Returns JSON with reference locations and approach used.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    serena = _has_serena(proj["path"])
+
+    # Text-based reference finding using word boundary matching
+    try:
+        pattern = re.compile(r"\b" + re.escape(symbol) + r"\b")
+    except re.error:
+        return json.dumps({"error": f"Invalid symbol name for pattern: {symbol}"})
+
+    references = []
+    files_scanned = 0
+
+    for filepath in sorted(project_root.rglob("*")):
+        if not filepath.is_file():
+            continue
+        if filepath.suffix.lower() not in _EXT_TO_LANG:
+            continue
+        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
+            continue
+
+        files_scanned += 1
+        if files_scanned > _MAX_GREP_FILES:
+            break
+
+        try:
+            text = filepath.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, PermissionError):
+            continue
+
+        for i, line in enumerate(text.splitlines(), start=1):
+            if pattern.search(line):
+                references.append({
+                    "file": str(filepath.relative_to(project_root)),
+                    "line": i,
+                    "content": line.rstrip()[:200],
+                })
+                if len(references) >= max_results:
+                    return json.dumps({
+                        "project": project,
+                        "symbol": symbol,
+                        "references": references,
+                        "truncated": True,
+                        "approach": "text-based",
+                        "serena_available": serena,
+                        "hint": "Use Serena MCP tools for semantic reference finding"
+                        if serena else "Serena not configured — results are text-based matches",
+                    })
+
+    return json.dumps({
+        "project": project,
+        "symbol": symbol,
+        "references": references,
+        "truncated": False,
+        "approach": "text-based",
+        "serena_available": serena,
+        "hint": "Use Serena MCP tools for semantic reference finding"
+        if serena else "Serena not configured — results are text-based matches",
+    })
+
+
+@mcp.tool()
+def atlas_run_command(project: str, command: str, timeout: int = 30) -> str:
+    """Run a shell command in a registered project's root directory.
+
+    Use when MCP and semantic tools are insufficient. The command runs
+    with the project root as the working directory.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        command: Command to execute (split by shell, not passed to shell).
+        timeout: Timeout in seconds (default 30, max 120).
+
+    Returns JSON with stdout, stderr, exit_code, and timed_out status.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    project_root = Path(proj["path"]).expanduser().resolve()
+    if not project_root.is_dir():
+        return json.dumps({"error": f"Project path does not exist: {project_root}"})
+
+    # Enforce timeout limits
+    timeout = max(1, min(timeout, _MAX_COMMAND_TIMEOUT))
+
+    try:
+        import shlex
+        args = shlex.split(command)
+    except ValueError as e:
+        return json.dumps({"error": f"Invalid command syntax: {e}"})
+
+    if not args:
+        return json.dumps({"error": "Empty command"})
+
+    try:
+        result = subprocess.run(
+            args,
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        stdout = result.stdout[:_MAX_OUTPUT_SIZE]
+        stderr = result.stderr[:_MAX_OUTPUT_SIZE]
+        return json.dumps({
+            "project": project,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": result.returncode,
+            "timed_out": False,
+        })
+    except subprocess.TimeoutExpired:
+        return json.dumps({
+            "project": project,
+            "stdout": "",
+            "stderr": "",
+            "exit_code": -1,
+            "timed_out": True,
+            "timeout": timeout,
+        })
+    except FileNotFoundError:
+        return json.dumps({"error": f"Command not found: {args[0]}"})
+    except OSError as e:
+        return json.dumps({"error": f"Command execution failed: {e}"})
 
 
 def main():
