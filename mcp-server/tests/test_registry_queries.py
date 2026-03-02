@@ -6,8 +6,6 @@ Story 3.2 verification — these tools pre-existed; tests confirm AC compliance.
 import json
 from unittest.mock import patch
 
-import pytest
-
 from atlas_mcp.server import atlas_get_project, atlas_list_projects, atlas_search_projects
 
 
@@ -144,7 +142,11 @@ class TestAtlasSearchProjects:
         with _mock_projects(p1, p2):
             result = json.loads(atlas_search_projects(query="web"))
             assert len(result) == 1
-            assert result[0]["slug"] == "web-sdk"
+            entry = result[0]
+            assert entry["slug"] == "web-sdk"
+            # Verify search results include full field schema
+            for field in ("slug", "path", "repo", "name", "summary", "tags", "group"):
+                assert field in entry, f"Missing field '{field}' in search result"
 
     def test_search_by_tag(self):
         p1 = _make_project("frontend", tags=["ui", "react"])
