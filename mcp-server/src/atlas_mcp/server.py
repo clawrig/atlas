@@ -150,6 +150,11 @@ def atlas_list_providers() -> str:
 
 
 _MAX_FILE_SIZE = 1_048_576  # 1 MB
+_MAX_GREP_FILES = 10_000  # Safety limit for recursive file enumeration
+_SKIP_DIRS = frozenset({
+    ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox",
+    ".mypy_cache", ".pytest_cache", ".ruff_cache", "dist", "build",
+})
 
 
 @mcp.tool()
@@ -189,7 +194,7 @@ def atlas_read_file(project: str, path: str) -> str:
 def atlas_grep(
     project: str,
     pattern: str,
-    glob: str = "",
+    file_glob: str = "",
     max_results: int = 100,
 ) -> str:
     """Search file contents in a registered project using a regex pattern.
@@ -197,10 +202,10 @@ def atlas_grep(
     Args:
         project: Project slug from the Atlas registry.
         pattern: Regular expression pattern to search for.
-        glob: Optional glob pattern to filter files (e.g., '*.py', 'src/**/*.ts').
+        file_glob: Optional glob pattern to filter files (e.g., '*.py', 'src/**/*.ts').
         max_results: Maximum number of matching lines to return (default 100).
 
-    Returns JSON array of matches with file, line number, and content.
+    Returns JSON with matches (file, line, content) and project slug.
     """
     proj = find_project_by_slug(project)
     if not proj:
@@ -216,21 +221,27 @@ def atlas_grep(
         return json.dumps({"error": f"Invalid regex pattern: {e}"})
 
     # Collect files to search
-    if glob:
-        files = sorted(project_root.glob(glob))
+    if file_glob:
+        files = sorted(project_root.glob(file_glob))
     else:
         files = sorted(f for f in project_root.rglob("*") if f.is_file())
 
-    # Filter out common non-text directories
-    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
     matches = []
+    files_scanned = 0
 
     for filepath in files:
         if not filepath.is_file():
             continue
-        # Skip files in hidden/build directories
-        if any(part in skip_dirs for part in filepath.relative_to(project_root).parts):
+        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
             continue
+
+        files_scanned += 1
+        if files_scanned > _MAX_GREP_FILES:
+            return json.dumps({
+                "matches": matches,
+                "truncated": True,
+                "reason": f"File scan limit reached ({_MAX_GREP_FILES} files). Use file_glob to narrow search.",
+            })
 
         try:
             text = filepath.read_text(encoding="utf-8")
@@ -246,12 +257,13 @@ def atlas_grep(
                 })
                 if len(matches) >= max_results:
                     return json.dumps({
+                        "project": project,
                         "matches": matches,
                         "truncated": True,
                         "max_results": max_results,
                     })
 
-    return json.dumps({"matches": matches, "truncated": False})
+    return json.dumps({"project": project, "matches": matches, "truncated": False})
 
 
 @mcp.tool()
@@ -274,20 +286,18 @@ def atlas_glob(project: str, pattern: str) -> str:
 
     files = sorted(project_root.glob(pattern))
 
-    # Filter: only files, skip .git etc, validate within project boundary
-    skip_dirs = {".git", "node_modules", "__pycache__", ".venv", "venv", ".tox"}
     results = []
     for f in files:
         if not f.is_file():
             continue
         rel = f.relative_to(project_root)
-        if any(part in skip_dirs for part in rel.parts):
+        if any(part in _SKIP_DIRS for part in rel.parts):
             continue
         if not f.resolve().is_relative_to(project_root):
             continue
         results.append(str(rel))
 
-    return json.dumps({"files": results, "count": len(results)})
+    return json.dumps({"project": project, "files": results, "count": len(results)})
 
 
 def main():

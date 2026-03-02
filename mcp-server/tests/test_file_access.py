@@ -1,14 +1,11 @@
 """Tests for cross-project file access tools: atlas_read_file, atlas_grep, atlas_glob."""
 
 import json
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from atlas_mcp.registry import resolve_project_path
+from atlas_mcp.registry import find_project_by_slug, resolve_project_path
 from atlas_mcp.server import atlas_glob, atlas_grep, atlas_read_file
 
 
@@ -46,6 +43,24 @@ def _mock_projects(project_dict):
     return patch(
         "atlas_mcp.registry.get_all_projects", return_value=[project_dict]
     )
+
+
+# --- find_project_by_slug tests ---
+
+
+class TestFindProjectBySlug:
+    def test_found(self, fake_project):
+        proj, _ = fake_project
+        with _mock_projects(proj):
+            result = find_project_by_slug("test-project")
+            assert result is not None
+            assert result["slug"] == "test-project"
+
+    def test_not_found(self, fake_project):
+        proj, _ = fake_project
+        with _mock_projects(proj):
+            result = find_project_by_slug("nonexistent")
+            assert result is None
 
 
 # --- resolve_project_path tests ---
@@ -168,7 +183,7 @@ class TestAtlasGrep:
         proj, _ = fake_project
         with _mock_projects(proj):
             result = json.loads(
-                atlas_grep("test-project", "def", glob="src/*.py")
+                atlas_grep("test-project", "def", file_glob="src/*.py")
             )
             matches = result["matches"]
             # Only src/*.py files, not tests/
@@ -206,7 +221,7 @@ class TestAtlasGrep:
         proj, _ = fake_project
         with _mock_projects(proj):
             result = json.loads(
-                atlas_grep("test-project", "import os", glob="src/main.py")
+                atlas_grep("test-project", "import os", file_glob="src/main.py")
             )
             matches = result["matches"]
             assert len(matches) == 1
