@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -382,6 +383,18 @@ def _extract_symbols_from_file(filepath: Path, project_root: Path) -> list[dict]
     return symbols
 
 
+def _iter_source_files(root: Path, project_root: Path):
+    """Yield source files under *root*, skipping non-source and _SKIP_DIRS."""
+    for filepath in sorted(root.rglob("*")):
+        if not filepath.is_file():
+            continue
+        if filepath.suffix.lower() not in _EXT_TO_LANG:
+            continue
+        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
+            continue
+        yield filepath
+
+
 @mcp.tool()
 def atlas_find_symbol(
     project: str,
@@ -416,14 +429,7 @@ def atlas_find_symbol(
     matches = []
     files_scanned = 0
 
-    for filepath in sorted(project_root.rglob("*")):
-        if not filepath.is_file():
-            continue
-        if filepath.suffix.lower() not in _EXT_TO_LANG:
-            continue
-        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
-            continue
-
+    for filepath in _iter_source_files(project_root, project_root):
         files_scanned += 1
         if files_scanned > _MAX_GREP_FILES:
             break
@@ -507,18 +513,11 @@ def atlas_symbols_overview(project: str, path: str = "") -> str:
     files_scanned = 0
 
     if target.is_file():
-        file_list = [target]
+        file_list = [target] if target.suffix.lower() in _EXT_TO_LANG else []
     else:
-        file_list = sorted(target.rglob("*"))
+        file_list = _iter_source_files(target, project_root)
 
     for filepath in file_list:
-        if not filepath.is_file():
-            continue
-        if filepath.suffix.lower() not in _EXT_TO_LANG:
-            continue
-        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
-            continue
-
         files_scanned += 1
         if files_scanned > _MAX_GREP_FILES:
             break
@@ -574,14 +573,7 @@ def atlas_find_references(project: str, symbol: str, max_results: int = 50) -> s
     references = []
     files_scanned = 0
 
-    for filepath in sorted(project_root.rglob("*")):
-        if not filepath.is_file():
-            continue
-        if filepath.suffix.lower() not in _EXT_TO_LANG:
-            continue
-        if any(part in _SKIP_DIRS for part in filepath.relative_to(project_root).parts):
-            continue
-
+    for filepath in _iter_source_files(project_root, project_root):
         files_scanned += 1
         if files_scanned > _MAX_GREP_FILES:
             break
@@ -648,7 +640,6 @@ def atlas_run_command(project: str, command: str, timeout: int = 30) -> str:
     timeout = max(1, min(timeout, _MAX_COMMAND_TIMEOUT))
 
     try:
-        import shlex
         args = shlex.split(command)
     except ValueError as e:
         return json.dumps({"error": f"Invalid command syntax: {e}"})
