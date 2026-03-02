@@ -19,7 +19,12 @@ from atlas_mcp.registry import (
 
 mcp = FastMCP(
     "atlas",
-    instructions="Project registry — list, search, and get project metadata managed by Atlas",
+    instructions=(
+        "Project registry — list, search, and get project metadata managed by Atlas. "
+        "Use atlas_query as the recommended entry point for cross-project code intelligence: "
+        "it auto-selects the best tool (symbol lookup, grep, file read, overview) based on your query. "
+        "Individual tools (atlas_find_symbol, atlas_grep, etc.) remain available for direct control."
+    ),
 )
 
 
@@ -611,6 +616,177 @@ def atlas_find_references(project: str, symbol: str, max_results: int = 50) -> s
         "serena_available": serena,
         "hint": "Use Serena MCP tools for semantic reference finding"
         if serena else "Serena not configured — results are text-based matches",
+    })
+
+
+# --- Query classification helpers for atlas_query (Story 3.4) ---
+
+# File extensions that indicate a path-like token
+_FILE_EXTENSIONS = frozenset({
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".json", ".yaml", ".yml",
+    ".toml", ".md", ".txt", ".cfg", ".ini", ".env", ".sh", ".html", ".css",
+})
+
+# PascalCase: >=2 words starting with uppercase, e.g. UserService, ApiClient
+_RE_PASCAL_CASE = re.compile(r"^[A-Z][a-z]+(?:[A-Z][a-z]+)+$")
+# snake_case identifier with at least one underscore: get_user, my_func
+_RE_SNAKE_CASE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
+
+
+def _looks_like_file_path(query: str) -> bool:
+    """Check if the query contains something that looks like a file path."""
+    for token in query.split():
+        if "/" in token or "\\" in token:
+            return True
+        if any(token.endswith(ext) for ext in _FILE_EXTENSIONS):
+            return True
+    return False
+
+
+def _looks_like_symbol_name(query: str) -> bool:
+    """Check if the query contains a PascalCase or snake_case identifier."""
+    for token in query.split():
+        clean = token.strip("\"'`,;:()[]{}?!")
+        if _RE_PASCAL_CASE.match(clean) or _RE_SNAKE_CASE.match(clean):
+            return True
+    return False
+
+
+def _classify_query(query: str) -> str:
+    """Classify a natural-language query into a tool category.
+
+    Returns one of: "file", "symbol", "overview", "pattern".
+    """
+    q = query.lower().strip()
+
+    # Overview queries first — "list symbols in src/" should not be "file"
+    if any(kw in q for kw in (
+        "overview", "structure", "what's in", "list symbols", "symbols in",
+    )):
+        return "overview"
+
+    # File queries — explicit paths or file-read intent
+    if _looks_like_file_path(query):
+        return "file"
+    if any(kw in q for kw in ("read ", "show ", "contents of ", "cat ")):
+        return "file"
+
+    # Symbol queries — code structure terms or identifier-like tokens
+    if any(kw in q for kw in (
+        "class ", "function ", "def ", "method ", "constructor",
+        "interface ", "type ",
+    )):
+        return "symbol"
+    if _looks_like_symbol_name(query):
+        return "symbol"
+
+    # Pattern queries — search/grep intent
+    if any(kw in q for kw in (
+        "import", "find all", "grep", "search", "files containing",
+        "where is", "usage", "references",
+    )):
+        return "pattern"
+
+    # Default: pattern (safest fallback — always produces results)
+    return "pattern"
+
+
+def _extract_symbol_name(query: str) -> str:
+    """Extract the most likely symbol name from a query string."""
+    # Try PascalCase / snake_case tokens first
+    for token in query.split():
+        clean = token.strip("\"'`,;:()[]{}?!")
+        if _RE_PASCAL_CASE.match(clean) or _RE_SNAKE_CASE.match(clean):
+            return clean
+
+    # Fall back to last meaningful token (skip common verbs)
+    skip = {"find", "the", "class", "function", "def", "method", "constructor",
+            "interface", "type", "of", "in", "for", "a", "an", "show", "get",
+            "what", "is", "where", "how"}
+    tokens = [t.strip("\"'`,;:()[]{}?!") for t in query.split()]
+    for token in reversed(tokens):
+        if token.lower() not in skip and len(token) > 1:
+            return token
+    return query.strip()
+
+
+def _extract_file_path(query: str) -> str | None:
+    """Extract a file path from a query string, if present."""
+    for token in query.split():
+        if "/" in token or "\\" in token:
+            return token.strip("\"'`,;:()[]{}?!")
+        if any(token.endswith(ext) for ext in _FILE_EXTENSIONS):
+            return token.strip("\"'`,;:()[]{}?!")
+    return None
+
+
+@mcp.tool()
+def atlas_query(project: str, query: str, max_results: int = 20) -> str:
+    """Unified query entry point — automatically selects the best tool for your query.
+
+    Classifies the query and routes to the appropriate Atlas tool:
+    - Symbol queries → atlas_find_symbol (code structure, definitions)
+    - Pattern queries → atlas_grep (text search across files)
+    - File queries → atlas_read_file or atlas_glob
+    - Overview queries → atlas_symbols_overview
+
+    Falls back gracefully when Serena is unavailable.
+
+    Args:
+        project: Project slug from the Atlas registry.
+        query: Natural-language query describing what you're looking for.
+        max_results: Maximum number of results to return (default 20).
+
+    Returns JSON with query_type, tool_used, results, and metadata.
+    """
+    proj = find_project_by_slug(project)
+    if not proj:
+        return json.dumps({"error": f"Project '{project}' not found in registry"})
+
+    query_type = _classify_query(query)
+    serena = _has_serena(proj.get("path", ""))
+
+    if query_type == "file":
+        file_path = _extract_file_path(query)
+        if file_path:
+            # Looks like a specific file — read it
+            inner = atlas_read_file(project, file_path)
+            tool_used = "atlas_read_file"
+        else:
+            # No clear path — try glob with a best-guess pattern
+            inner = atlas_glob(project, "**/*")
+            tool_used = "atlas_glob"
+
+    elif query_type == "symbol":
+        symbol_name = _extract_symbol_name(query)
+        inner = atlas_find_symbol(project, symbol_name, include_body=True)
+        tool_used = "atlas_find_symbol"
+
+    elif query_type == "overview":
+        path = _extract_file_path(query) or ""
+        inner = atlas_symbols_overview(project, path)
+        tool_used = "atlas_symbols_overview"
+
+    else:  # "pattern"
+        # Use the query as the grep pattern, extracting a useful search term
+        search_term = _extract_symbol_name(query)
+        inner = atlas_grep(project, re.escape(search_term), max_results=max_results)
+        tool_used = "atlas_grep"
+
+    # Parse inner result and wrap
+    try:
+        results = json.loads(inner)
+    except json.JSONDecodeError:
+        results = {"raw": inner}
+
+    return json.dumps({
+        "project": project,
+        "query": query,
+        "query_type": query_type,
+        "tool_used": tool_used,
+        "results": results,
+        "serena_available": serena,
+        "fallback_used": query_type == "symbol",  # always regex-based (no direct Serena integration)
     })
 
 
