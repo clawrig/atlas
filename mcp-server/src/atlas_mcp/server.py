@@ -62,7 +62,12 @@ def atlas_get_project(slug: str) -> str:
     Args:
         slug: The project slug (e.g., 'digital-web-sdk')
 
-    Returns JSON with all fields from atlas.yaml + registry (path, repo).
+    Returns JSON with all available fields:
+      Registry: slug, path, repo
+      Cache (from atlas.yaml): name, summary, tags, group, links, docs, notes, metadata
+      Optional: autonomy_level (if configured in atlas.yaml)
+      Enriched: provider-contributed fields (e.g., issue tracker data)
+
     Returns error JSON if project not found.
     """
     projects = get_all_projects()
